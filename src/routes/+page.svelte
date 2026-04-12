@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import {
     type BleDevice,
     checkPermissions,
@@ -8,15 +9,10 @@
     getAdapterState,
     getConnectionUpdates,
     getScanningUpdates,
-    readString,
-    sendString,
     startScan,
     stopScan,
   } from "@mnlphlp/plugin-blec";
-
-  /** Same service/characteristic UUIDs as the plugin’s `examples/test-server`. */
-  const SERVICE_UUID = "A07498CA-AD5B-474E-940D-16F1FBE7E8CD";
-  const CHARACTERISTIC_UUID = "51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B";
+  import { FeatureId, ProfileId, type ProfileInfo } from "$lib/bleContract";
 
   let devices = $state<BleDevice[]>([]);
   let connected = $state(false);
@@ -26,13 +22,31 @@
   let logLines = $state<string[]>([]);
   let sendPayload = $state("hello from furu");
   let readResult = $state("");
+  let profiles = $state<ProfileInfo[]>([]);
+  let activeProfileId = $state<string>(ProfileId.unknown);
+  let activeFeatureIds = $state<string[]>([]);
 
   function log(msg: string) {
     logLines = [...logLines.slice(-80), `${new Date().toISOString().slice(11, 19)} ${msg}`];
   }
 
+  async function refreshProfileState() {
+    try {
+      activeProfileId = await invoke<string>("ble_get_active_profile");
+      activeFeatureIds = await invoke<string[]>("ble_list_features_for_active_profile");
+    } catch (e) {
+      log(`profile state error: ${String(e)}`);
+    }
+  }
+
   onMount(() => {
     void (async () => {
+      try {
+        profiles = await invoke<ProfileInfo[]>("ble_list_profiles");
+        await refreshProfileState();
+      } catch (e) {
+        log(`ble_list_profiles error: ${String(e)}`);
+      }
       await getConnectionUpdates((state) => {
         connected = state;
         log(`connection: ${state ? "connected" : "disconnected"}`);
@@ -42,6 +56,17 @@
       });
     })();
   });
+
+  async function onProfileChange(id: string) {
+    try {
+      await invoke("ble_set_active_profile", { profileId: id });
+      activeProfileId = id;
+      await refreshProfileState();
+      log(`active profile: ${id}`);
+    } catch (e) {
+      log(`ble_set_active_profile error: ${String(e)}`);
+    }
+  }
 
   async function refreshAdapter() {
     try {
@@ -103,7 +128,7 @@
 
   async function doSend() {
     try {
-      await sendString(CHARACTERISTIC_UUID, sendPayload, "withResponse", SERVICE_UUID);
+      await invoke("ble_poc_send_string", { payload: sendPayload });
       log(`send ok (${sendPayload.length} chars)`);
     } catch (e) {
       log(`send error: ${String(e)}`);
@@ -112,7 +137,7 @@
 
   async function doRead() {
     try {
-      readResult = await readString(CHARACTERISTIC_UUID, SERVICE_UUID);
+      readResult = await invoke<string>("ble_poc_read_string");
       log(`read ok (${readResult.length} chars)`);
     } catch (e) {
       readResult = "";
@@ -124,10 +149,37 @@
 <main class="wrap">
   <h1>BLE PoC (tauri-plugin-blec)</h1>
   <p class="hint">
-    Use the plugin’s
-    <a href="https://github.com/MnlPhlp/tauri-plugin-blec/tree/main/examples/test-server" target="_blank" rel="noreferrer">test-server</a>
-    example on another machine or phone to exercise GATT read/write.
+    For a quick GATT peer you can use the
+    <a href="https://github.com/MnlPhlp/tauri-plugin-blec/tree/main/examples/test-server" target="_blank" rel="noreferrer">tauri-plugin-blec test-server</a>
+    example. Send/read use the Rust commands <code>ble_poc_send_string</code> / <code>ble_poc_read_string</code> (see feature <code>{FeatureId.devPluginTestEcho}</code> in the docs catalog) whenever something compatible is connected.
   </p>
+
+  <section class="profile">
+    <label>
+      Device profile
+      <select
+        value={activeProfileId}
+        onchange={(e) => onProfileChange((e.currentTarget as HTMLSelectElement).value)}
+      >
+        {#each profiles as p}
+          <option value={p.id}>{p.label}</option>
+        {/each}
+      </select>
+    </label>
+    <p class="profile-desc">
+      {#each profiles as p}
+        {#if p.id === activeProfileId}{p.description}{/if}
+      {/each}
+    </p>
+    <p class="features">
+      Features for this profile:
+      {#if activeFeatureIds.length}
+        <code>{activeFeatureIds.join(", ")}</code>
+      {:else}
+        <em>none</em>
+      {/if}
+    </p>
+  </section>
 
   <section class="row">
     <button type="button" onclick={refreshAdapter}>Adapter state</button>
@@ -153,8 +205,8 @@
       Payload
       <input bind:value={sendPayload} />
     </label>
-    <button type="button" onclick={doSend} disabled={!connected}>Send (with response)</button>
-    <button type="button" onclick={doRead} disabled={!connected}>Read</button>
+    <button type="button" onclick={doSend} disabled={!connected}>Send (Rust / with response)</button>
+    <button type="button" onclick={doRead} disabled={!connected}>Read (Rust)</button>
     <pre class="readout">{readResult || "—"}</pre>
   </section>
 
@@ -207,6 +259,34 @@
 
   section {
     margin-bottom: 1rem;
+  }
+
+  .profile label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-width: 28rem;
+  }
+
+  .profile select {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .profile-desc {
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+    color: #555;
+    max-width: 40rem;
+  }
+
+  .features {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    word-break: break-word;
+  }
+
+  .features code {
+    display: inline;
   }
 
   .row {
@@ -315,6 +395,10 @@
 
   @media (prefers-color-scheme: dark) {
     .hint {
+      color: #aaa;
+    }
+
+    .profile-desc {
       color: #aaa;
     }
 
