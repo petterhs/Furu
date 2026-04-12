@@ -37,34 +37,6 @@ pub fn ble_list_features_for_active_profile() -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// Ephemeral PoC: read/write string on [`registry::POC_STRING_ECHO_*`] when a peer is connected (same connection as the JS BLE plugin).
-#[tauri::command]
-pub async fn ble_poc_send_string(payload: String) -> Result<(), String> {
-    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
-    handler
-        .send_data(
-            registry::POC_STRING_ECHO_CHAR_UUID,
-            Some(registry::POC_STRING_ECHO_SERVICE_UUID),
-            payload.as_bytes(),
-            WriteType::WithResponse,
-        )
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn ble_poc_read_string() -> Result<String, String> {
-    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
-    let bytes = handler
-        .recv_data(
-            registry::POC_STRING_ECHO_CHAR_UUID,
-            Some(registry::POC_STRING_ECHO_SERVICE_UUID),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|e| e.to_string())
-}
-
 /// Writes **local** time to the SIG Current Time characteristic (`0x2A2B` on `0x1805`).
 /// The peer must implement CTS and allow writes; many watches only accept this from a bonded companion.
 #[tauri::command]

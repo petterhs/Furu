@@ -20,8 +20,6 @@
   let adapterState = $state<string>("—");
   let permissionsOk = $state<boolean | null>(null);
   let logLines = $state<string[]>([]);
-  let sendPayload = $state("hello from furu");
-  let readResult = $state("");
   let notifTitle = $state("Furu");
   let notifMessage = $state("Hello from the companion app");
   let profiles = $state<ProfileInfo[]>([]);
@@ -128,25 +126,6 @@
     }
   }
 
-  async function doSend() {
-    try {
-      await invoke("ble_poc_send_string", { payload: sendPayload });
-      log(`send ok (${sendPayload.length} chars)`);
-    } catch (e) {
-      log(`send error: ${String(e)}`);
-    }
-  }
-
-  async function doRead() {
-    try {
-      readResult = await invoke<string>("ble_poc_read_string");
-      log(`read ok (${readResult.length} chars)`);
-    } catch (e) {
-      readResult = "";
-      log(`read error: ${String(e)}`);
-    }
-  }
-
   async function doSendCurrentTime() {
     try {
       await invoke("ble_poc_send_current_time");
@@ -172,9 +151,8 @@
 <main class="wrap">
   <h1>BLE PoC (tauri-plugin-blec)</h1>
   <p class="hint">
-    For a quick GATT peer you can use the
-    <a href="https://github.com/MnlPhlp/tauri-plugin-blec/tree/main/examples/test-server" target="_blank" rel="noreferrer">tauri-plugin-blec test-server</a>
-    example. Send/read use the Rust commands <code>ble_poc_send_string</code> / <code>ble_poc_read_string</code> (see feature <code>{FeatureId.devPluginTestEcho}</code> in the docs catalog) whenever something compatible is connected.
+    Connect to a watch (e.g. InfiniTime), then use <strong>CTS</strong> or <strong>ANS</strong> below. Bonding may be
+    required for writes, depending on the device.
   </p>
 
   <section class="profile">
@@ -221,16 +199,6 @@
     {/if}
     <span>{connected ? "Connected" : "Not connected"}</span>
     <button type="button" onclick={doDisconnect} disabled={!connected}>Disconnect</button>
-  </section>
-
-  <section class="gatt">
-    <label>
-      Payload
-      <input bind:value={sendPayload} />
-    </label>
-    <button type="button" onclick={doSend} disabled={!connected}>Send (Rust / with response)</button>
-    <button type="button" onclick={doRead} disabled={!connected}>Read (Rust)</button>
-    <pre class="readout">{readResult || "—"}</pre>
   </section>
 
   <section class="gatt time">
@@ -301,10 +269,6 @@
     margin: 0 0 1rem;
     color: #555;
     font-size: 0.9rem;
-  }
-
-  .hint a {
-    color: #246;
   }
 
   section {
@@ -394,18 +358,6 @@
     padding: 0.35rem 0.5rem;
   }
 
-  .readout {
-    margin: 0;
-    padding: 0.5rem;
-    background: #f4f4f4;
-    border-radius: 6px;
-    min-height: 2.5rem;
-    white-space: pre-wrap;
-    width: 100%;
-    max-width: 36rem;
-    font-size: 0.85rem;
-  }
-
   .devices {
     list-style: none;
     padding: 0;
@@ -479,11 +431,6 @@
     .time-hint,
     .notif-hint {
       color: #aaa;
-    }
-
-    .readout {
-      background: #2a2a2a;
-      color: #eee;
     }
 
     .devices {

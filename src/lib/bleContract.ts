@@ -3,7 +3,6 @@
  * Do not rename; add new constants for new capabilities.
  */
 export const FeatureId = {
-  devPluginTestEcho: "dev.plugin_test_echo",
   bleDeviceInformation: "ble.device_information",
   bleCurrentTime: "ble.current_time",
   bleHr: "ble.hr",

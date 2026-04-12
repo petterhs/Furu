@@ -21,7 +21,6 @@ These IDs match Rust/TS `ProfileId` for the companion app only—not the same as
 
 | Feature ID | Classification | Primary service / characteristic | Protocol note | Furu status |
 |------------|----------------|-----------------------------------|---------------|-------------|
-| `dev.plugin_test_echo` | Firmware-specific (dev) | Service `A07498CA-AD5B-474E-940D-16F1FBE7E8CD`, char `51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B` | String read/write for bring-up; a dedicated **furu test server** will replace this story later | WIP (Rust PoC only) |
 | `ble.device_information` | Standard (SIG) | `0x180A` (Device Information) | Model, firmware revision, etc. | not started |
 | `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (`ble_poc_send_current_time`: local time, write with response) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | HR notifications | not started |
@@ -47,7 +46,6 @@ Which **firmware** is expected to support each **feature ID** when that stack is
 
 | Feature ID | InfiniTime | Kongle | Wasp-os |
 |------------|:----------:|:------:|:-------:|
-| `dev.plugin_test_echo` | — | — | — |
 | `ble.device_information` | ✓ | — | — |
 | `ble.current_time` | ✓ | — | — |
 | `ble.hr` | ✓ | — | — |
@@ -64,4 +62,3 @@ InfiniTime column uses ✓ where the capability is in scope for a typical Infini
 
 - **InfiniTime** companion and DFU UUIDs change over time; treat the InfiniTime GitHub tree as authoritative and update this document when you pin versions.
 - **`ble.dis_steps`**: Many watches expose activity via custom services; narrow this row when you pick a concrete endpoint per firmware.
-- **PoC read/write:** The app may call `ble_poc_send_string` / `ble_poc_read_string` against the GATT pair listed for `dev.plugin_test_echo` whenever a suitable peer is connected; that does not imply any firmware column above until a **furu test server** (or another stack) is documented here.

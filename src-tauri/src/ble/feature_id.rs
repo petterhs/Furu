@@ -4,7 +4,6 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(dead_code)] // Variants mirror the catalog; not all are wired into profiles yet.
 pub enum FeatureId {
-    DevPluginTestEcho,
     BleDeviceInformation,
     BleCurrentTime,
     BleHeartRate,
@@ -18,7 +17,6 @@ impl FeatureId {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::DevPluginTestEcho => "dev.plugin_test_echo",
             Self::BleDeviceInformation => "ble.device_information",
             Self::BleCurrentTime => "ble.current_time",
             Self::BleHeartRate => "ble.hr",

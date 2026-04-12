@@ -19,7 +19,7 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 ## BLE architecture (current)
 
 - **Scan, connect, disconnect, permissions** are driven from the **frontend** via `@mnlphlp/plugin-blec` (same connection the Rust side sees).
-- **Rust** (`src-tauri/src/ble/`) holds **feature IDs**, **app profiles**, a small **session** (active profile), **GATT constants** (`registry.rs`), and **Tauri commands** (`commands.rs`)—e.g. `ble_poc_send_string` / `ble_poc_read_string` for bring-up.
+- **Rust** (`src-tauri/src/ble/`) holds **feature IDs**, **app profiles**, a small **session** (active profile), **GATT constants** (`registry.rs`), and **Tauri commands** (`commands.rs`)—e.g. CTS and ANS PoC writes.
 - New product behaviour (time sync, DFU, HR, …) should grow as **Rust modules** calling `tauri_plugin_blec::get_handler()`, not as ad-hoc UUIDs in Svelte.
 
 ## Documentation and single source of truth

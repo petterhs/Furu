@@ -17,8 +17,6 @@ pub fn run() {
             ble::commands::ble_get_active_profile,
             ble::commands::ble_set_active_profile,
             ble::commands::ble_list_features_for_active_profile,
-            ble::commands::ble_poc_send_string,
-            ble::commands::ble_poc_read_string,
             ble::commands::ble_poc_send_current_time,
             ble::commands::ble_poc_send_notification,
         ])
