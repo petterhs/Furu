@@ -25,7 +25,7 @@ These IDs match Rust/TS `ProfileId` for the companion app only—not the same as
 | `ble.device_information` | Standard (SIG) | `0x180A` (Device Information) | Model, firmware revision, etc. | not started |
 | `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (`ble_poc_send_current_time`: local time, write with response) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | HR notifications | not started |
-| `ble.anss` | Standard (SIG) | `0x1811` (Alert Notification Service) | Forwarding notifications (profile-dependent) | not started |
+| `ble.anss` | Standard (SIG) | `0x1811` / **New Alert** `0x2A46` | InfiniTime: `title\0message` after 3-byte ANS header (see `ble::ans`) | WIP (`ble_poc_send_notification`) |
 | `ble.dis_steps` | Standard (SIG) | Depends on firmware exposure | Step count; exact characteristic varies | not started |
 | `infinitime.dfu` | Vendor (InfiniTime) | Nordic DFU / InfiniTime OTA UUIDs in source | OTA firmware update state machine | not started |
 | `infinitime.companion_uart` | Vendor (InfiniTime) | Nordic UART-style companion service (confirm in source) | Binary framing per InfiniTime | not started |

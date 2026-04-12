@@ -20,6 +20,7 @@ pub fn run() {
             ble::commands::ble_poc_send_string,
             ble::commands::ble_poc_read_string,
             ble::commands::ble_poc_send_current_time,
+            ble::commands::ble_poc_send_notification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

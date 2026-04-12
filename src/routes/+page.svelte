@@ -22,6 +22,8 @@
   let logLines = $state<string[]>([]);
   let sendPayload = $state("hello from furu");
   let readResult = $state("");
+  let notifTitle = $state("Furu");
+  let notifMessage = $state("Hello from the companion app");
   let profiles = $state<ProfileInfo[]>([]);
   let activeProfileId = $state<string>(ProfileId.unknown);
   let activeFeatureIds = $state<string[]>([]);
@@ -153,6 +155,18 @@
       log(`CTS time write error: ${String(e)}`);
     }
   }
+
+  async function doSendNotification() {
+    try {
+      await invoke("ble_poc_send_notification", {
+        title: notifTitle,
+        message: notifMessage,
+      });
+      log("ANS New Alert (0x2A46) sent");
+    } catch (e) {
+      log(`ANS notification error: ${String(e)}`);
+    }
+  }
 </script>
 
 <main class="wrap">
@@ -226,6 +240,24 @@
       <code>{FeatureId.bleCurrentTime}</code>).
     </p>
     <button type="button" onclick={doSendCurrentTime} disabled={!connected}>Send current time (CTS)</button>
+  </section>
+
+  <section class="gatt notif">
+    <p class="notif-hint">
+      <strong>Alert Notification Service</strong> — writes SIG <strong>New Alert</strong> (<code>0x1811</code> /
+      <code>0x2A46</code>). InfiniTime expects <code>title</code> and <code>message</code> separated by a NUL in
+      the payload (feature <code>{FeatureId.bleAnss}</code>). Combined text is capped at 100 bytes; bonding may be
+      required, same as CTS.
+    </p>
+    <label>
+      Title
+      <input bind:value={notifTitle} autocomplete="off" />
+    </label>
+    <label>
+      Message
+      <input bind:value={notifMessage} autocomplete="off" />
+    </label>
+    <button type="button" onclick={doSendNotification} disabled={!connected}>Send notification (ANS)</button>
   </section>
 
   <ul class="devices">
@@ -342,11 +374,24 @@
     margin-top: 0.25rem;
   }
 
-  .time-hint {
+  .time-hint,
+  .notif-hint {
     margin: 0 0 0.5rem;
     max-width: 40rem;
     font-size: 0.9rem;
     color: #555;
+  }
+
+  .gatt.notif label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+    max-width: 28rem;
+  }
+
+  .gatt.notif input {
+    padding: 0.35rem 0.5rem;
   }
 
   .readout {
@@ -431,7 +476,8 @@
       color: #aaa;
     }
 
-    .time-hint {
+    .time-hint,
+    .notif-hint {
       color: #aaa;
     }
 

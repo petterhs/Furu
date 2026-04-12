@@ -1,5 +1,6 @@
 use tauri_plugin_blec::models::WriteType;
 
+use super::ans;
 use super::cts;
 use super::profiles;
 use super::registry;
@@ -74,6 +75,27 @@ pub async fn ble_poc_send_current_time() -> Result<(), String> {
         .send_data(
             registry::CURRENT_TIME_CHAR_UUID,
             Some(registry::CURRENT_TIME_SERVICE_UUID),
+            &pdu,
+            WriteType::WithResponse,
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// **New Alert** (`0x2A46` on `0x1811`): InfiniTime-style `title\0message` after a 3-byte header (see `ble::ans`).
+#[tauri::command]
+pub async fn ble_poc_send_notification(
+    title: String,
+    message: String,
+    category: Option<u8>,
+) -> Result<(), String> {
+    let cat = category.unwrap_or(ans::CATEGORY_SIMPLE_ALERT);
+    let pdu = ans::encode_new_alert_infinitime(&title, &message, cat)?;
+    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
+    handler
+        .send_data(
+            registry::NEW_ALERT_CHAR_UUID,
+            Some(registry::ALERT_NOTIFICATION_SERVICE_UUID),
             &pdu,
             WriteType::WithResponse,
         )
