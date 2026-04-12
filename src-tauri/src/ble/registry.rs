@@ -7,3 +7,9 @@ pub const POC_STRING_ECHO_SERVICE_UUID: Uuid = uuid!("A07498CA-AD5B-474E-940D-16
 
 /// Ephemeral PoC characteristic UUID on [`POC_STRING_ECHO_SERVICE_UUID`].
 pub const POC_STRING_ECHO_CHAR_UUID: Uuid = uuid!("51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B");
+
+/// Bluetooth SIG Current Time Service (`0x1805`).
+pub const CURRENT_TIME_SERVICE_UUID: Uuid = uuid!("00001805-0000-1000-8000-00805F9B34FB");
+
+/// Bluetooth SIG Current Time characteristic (`0x2A2B`).
+pub const CURRENT_TIME_CHAR_UUID: Uuid = uuid!("00002A2B-0000-1000-8000-00805F9B34FB");

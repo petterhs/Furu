@@ -144,6 +144,15 @@
       log(`read error: ${String(e)}`);
     }
   }
+
+  async function doSendCurrentTime() {
+    try {
+      await invoke("ble_poc_send_current_time");
+      log("current time (CTS 0x2A2B) write sent");
+    } catch (e) {
+      log(`CTS time write error: ${String(e)}`);
+    }
+  }
 </script>
 
 <main class="wrap">
@@ -208,6 +217,15 @@
     <button type="button" onclick={doSend} disabled={!connected}>Send (Rust / with response)</button>
     <button type="button" onclick={doRead} disabled={!connected}>Read (Rust)</button>
     <pre class="readout">{readResult || "—"}</pre>
+  </section>
+
+  <section class="gatt time">
+    <p class="time-hint">
+      Send <strong>local</strong> wall clock to BLE SIG Current Time (<code>0x1805</code> /
+      <code>0x2A2B</code>). Works only if the connected device exposes CTS and allows this write (feature
+      <code>{FeatureId.bleCurrentTime}</code>).
+    </p>
+    <button type="button" onclick={doSendCurrentTime} disabled={!connected}>Send current time (CTS)</button>
   </section>
 
   <ul class="devices">
@@ -320,6 +338,17 @@
     padding: 0.35rem 0.5rem;
   }
 
+  .gatt.time {
+    margin-top: 0.25rem;
+  }
+
+  .time-hint {
+    margin: 0 0 0.5rem;
+    max-width: 40rem;
+    font-size: 0.9rem;
+    color: #555;
+  }
+
   .readout {
     margin: 0;
     padding: 0.5rem;
@@ -399,6 +428,10 @@
     }
 
     .profile-desc {
+      color: #aaa;
+    }
+
+    .time-hint {
       color: #aaa;
     }
 

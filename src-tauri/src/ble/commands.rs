@@ -1,5 +1,6 @@
 use tauri_plugin_blec::models::WriteType;
 
+use super::cts;
 use super::profiles;
 use super::registry;
 use super::session;
@@ -61,4 +62,21 @@ pub async fn ble_poc_read_string() -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?;
     String::from_utf8(bytes).map_err(|e| e.to_string())
+}
+
+/// Writes **local** time to the SIG Current Time characteristic (`0x2A2B` on `0x1805`).
+/// The peer must implement CTS and allow writes; many watches only accept this from a bonded companion.
+#[tauri::command]
+pub async fn ble_poc_send_current_time() -> Result<(), String> {
+    let pdu = cts::encode_current_time_local();
+    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
+    handler
+        .send_data(
+            registry::CURRENT_TIME_CHAR_UUID,
+            Some(registry::CURRENT_TIME_SERVICE_UUID),
+            &pdu,
+            WriteType::WithResponse,
+        )
+        .await
+        .map_err(|e| e.to_string())
 }

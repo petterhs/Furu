@@ -23,7 +23,7 @@ These IDs match Rust/TS `ProfileId` for the companion app only—not the same as
 |------------|----------------|-----------------------------------|---------------|-------------|
 | `dev.plugin_test_echo` | Firmware-specific (dev) | Service `A07498CA-AD5B-474E-940D-16F1FBE7E8CD`, char `51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B` | String read/write for bring-up; a dedicated **furu test server** will replace this story later | WIP (Rust PoC only) |
 | `ble.device_information` | Standard (SIG) | `0x180A` (Device Information) | Model, firmware revision, etc. | not started |
-| `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | not started |
+| `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (`ble_poc_send_current_time`: local time, write with response) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | HR notifications | not started |
 | `ble.anss` | Standard (SIG) | `0x1811` (Alert Notification Service) | Forwarding notifications (profile-dependent) | not started |
 | `ble.dis_steps` | Standard (SIG) | Depends on firmware exposure | Step count; exact characteristic varies | not started |
