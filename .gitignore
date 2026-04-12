@@ -11,6 +11,8 @@ vite.config.ts.timestamp-*
  
 local.properties
 
+.android/
+
 # Devenv
 .devenv*
 devenv.local.nix
@@ -18,6 +20,9 @@ devenv.local.yaml
 
 # direnv
 .direnv
+
+# Logs
+*.log
 
 # pre-commit
 .pre-commit-config.yaml

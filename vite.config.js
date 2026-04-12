@@ -29,6 +29,7 @@ export default defineConfig(async () => ({
         "**/src-tauri/**",
         "**/.devenv/**",
         "**/.direnv/**",
+        "**/.android/**",
       ],
     },
   },
