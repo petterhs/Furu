@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@mnlphlp/plugin-blec':
+        specifier: ^0.8.0
+        version: 0.8.0
       '@tauri-apps/api':
         specifier: ^2.10.1
         version: 2.10.1
@@ -66,6 +69,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@mnlphlp/plugin-blec@0.8.0':
+    resolution: {integrity: sha512-KFcjgHkNi7poymIGbF+9VpmB2D9iEmPJKERiVaw2jDFO2dO5Om7kQ0JoYJZts59iT3qpNYUy8t5vtA6UOYcgFw==}
 
   '@napi-rs/wasm-runtime@1.1.3':
     resolution: {integrity: sha512-xK9sGVbJWYb08+mTJt3/YV24WxvxpXcXtP6B172paPZ+Ts69Re9dAr7lKwJoeIx8OoeuimEiRZ7umkiUVClmmQ==}
@@ -624,6 +630,10 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@mnlphlp/plugin-blec@0.8.0':
+    dependencies:
+      '@tauri-apps/api': 2.10.1
 
   '@napi-rs/wasm-runtime@1.1.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
     dependencies:

@@ -46,7 +46,7 @@ in
     enable = true;
     # Keep in sync with `src-tauri/gen/android/app/build.gradle.kts` (compileSdk / targetSdk).
     # AGP 8.11 + API 36 expects build-tools 35; first entry is used for devenv’s aapt2 GRADLE_OPTS.
-    platforms.version = [ "36" ];
+    platforms.version = [ "36" "34" ];
     buildTools.version = [ "35.0.0" "34.0.0" ];
     emulator.enable = false;
     ndk.enable = true;

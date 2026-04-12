@@ -1,156 +1,334 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { onMount } from "svelte";
+  import {
+    type BleDevice,
+    checkPermissions,
+    connect,
+    disconnect,
+    getAdapterState,
+    getConnectionUpdates,
+    getScanningUpdates,
+    readString,
+    sendString,
+    startScan,
+    stopScan,
+  } from "@mnlphlp/plugin-blec";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  /** Same service/characteristic UUIDs as the plugin’s `examples/test-server`. */
+  const SERVICE_UUID = "A07498CA-AD5B-474E-940D-16F1FBE7E8CD";
+  const CHARACTERISTIC_UUID = "51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B";
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  let devices = $state<BleDevice[]>([]);
+  let connected = $state(false);
+  let scanning = $state(false);
+  let adapterState = $state<string>("—");
+  let permissionsOk = $state<boolean | null>(null);
+  let logLines = $state<string[]>([]);
+  let sendPayload = $state("hello from furu");
+  let readResult = $state("");
+
+  function log(msg: string) {
+    logLines = [...logLines.slice(-80), `${new Date().toISOString().slice(11, 19)} ${msg}`];
+  }
+
+  onMount(() => {
+    void (async () => {
+      await getConnectionUpdates((state) => {
+        connected = state;
+        log(`connection: ${state ? "connected" : "disconnected"}`);
+      });
+      await getScanningUpdates((state) => {
+        scanning = state;
+      });
+    })();
+  });
+
+  async function refreshAdapter() {
+    try {
+      adapterState = await getAdapterState();
+    } catch (e) {
+      log(`adapter state error: ${String(e)}`);
+    }
+  }
+
+  async function requestPermissions(ask: boolean) {
+    try {
+      permissionsOk = await checkPermissions(ask);
+      log(`permissions (${ask ? "may prompt" : "no prompt"}): ${permissionsOk}`);
+    } catch (e) {
+      log(`permissions error: ${String(e)}`);
+    }
+  }
+
+  async function beginScan() {
+    devices = [];
+    try {
+      await startScan(
+        (found) => {
+          devices = found;
+        },
+        15_000,
+        false,
+      );
+    } catch (e) {
+      log(`startScan error: ${String(e)}`);
+    }
+  }
+
+  async function endScan() {
+    try {
+      await stopScan();
+    } catch (e) {
+      log(`stopScan error: ${String(e)}`);
+    }
+  }
+
+  async function connectTo(addr: string) {
+    try {
+      await connect(addr, () => log("device disconnected (callback)"), false);
+      log(`connect requested: ${addr}`);
+    } catch (e) {
+      log(`connect error: ${String(e)}`);
+    }
+  }
+
+  async function doDisconnect() {
+    try {
+      await disconnect();
+      log("disconnect requested");
+    } catch (e) {
+      log(`disconnect error: ${String(e)}`);
+    }
+  }
+
+  async function doSend() {
+    try {
+      await sendString(CHARACTERISTIC_UUID, sendPayload, "withResponse", SERVICE_UUID);
+      log(`send ok (${sendPayload.length} chars)`);
+    } catch (e) {
+      log(`send error: ${String(e)}`);
+    }
+  }
+
+  async function doRead() {
+    try {
+      readResult = await readString(CHARACTERISTIC_UUID, SERVICE_UUID);
+      log(`read ok (${readResult.length} chars)`);
+    } catch (e) {
+      readResult = "";
+      log(`read error: ${String(e)}`);
+    }
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<main class="wrap">
+  <h1>BLE PoC (tauri-plugin-blec)</h1>
+  <p class="hint">
+    Use the plugin’s
+    <a href="https://github.com/MnlPhlp/tauri-plugin-blec/tree/main/examples/test-server" target="_blank" rel="noreferrer">test-server</a>
+    example on another machine or phone to exercise GATT read/write.
+  </p>
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+  <section class="row">
+    <button type="button" onclick={refreshAdapter}>Adapter state</button>
+    <span>{adapterState}</span>
+    <button type="button" onclick={() => requestPermissions(true)}>Permissions (prompt if needed)</button>
+    <button type="button" onclick={() => requestPermissions(false)}>Permissions (no prompt)</button>
+    <span>{permissionsOk === null ? "—" : permissionsOk ? "granted" : "denied"}</span>
+  </section>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
+  <section class="row">
+    {#if scanning}
+      <button type="button" onclick={endScan}>Stop scan</button>
+      <span class="scanning">Scanning…</span>
+    {:else}
+      <button type="button" onclick={beginScan}>Scan 15s</button>
+    {/if}
+    <span>{connected ? "Connected" : "Not connected"}</span>
+    <button type="button" onclick={doDisconnect} disabled={!connected}>Disconnect</button>
+  </section>
+
+  <section class="gatt">
+    <label>
+      Payload
+      <input bind:value={sendPayload} />
+    </label>
+    <button type="button" onclick={doSend} disabled={!connected}>Send (with response)</button>
+    <button type="button" onclick={doRead} disabled={!connected}>Read</button>
+    <pre class="readout">{readResult || "—"}</pre>
+  </section>
+
+  <ul class="devices">
+    {#each devices as d (d.address)}
+      <li>
+        <button type="button" class="dev" onclick={() => connectTo(d.address)}>
+          Connect
+        </button>
+        <span class="name">{d.name || "(no name)"}</span>
+        <span class="addr">{d.address}</span>
+        <span class="rssi">RSSI {d.rssi}</span>
+      </li>
+    {:else}
+      <li class="empty">No devices in the last scan result yet.</li>
+    {/each}
+  </ul>
+
+  <section class="log">
+    <h2>Log</h2>
+    {#each logLines as line}
+      <div>{line}</div>
+    {/each}
+  </section>
 </main>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  .wrap {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 1.25rem 1rem 3rem;
+    font-family: system-ui, sans-serif;
+    line-height: 1.45;
   }
 
-  a:hover {
-    color: #24c8db;
+  h1 {
+    font-size: 1.35rem;
+    margin: 0 0 0.5rem;
   }
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  .hint {
+    margin: 0 0 1rem;
+    color: #555;
+    font-size: 0.9rem;
   }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
 
+  .hint a {
+    color: #246;
+  }
+
+  section {
+    margin-bottom: 1rem;
+  }
+
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+  }
+
+  .scanning {
+    color: #0a6;
+    font-weight: 600;
+  }
+
+  .gatt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .gatt label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+    max-width: 28rem;
+  }
+
+  .gatt input {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .readout {
+    margin: 0;
+    padding: 0.5rem;
+    background: #f4f4f4;
+    border-radius: 6px;
+    min-height: 2.5rem;
+    white-space: pre-wrap;
+    width: 100%;
+    max-width: 36rem;
+    font-size: 0.85rem;
+  }
+
+  .devices {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    max-height: 14rem;
+    overflow: auto;
+  }
+
+  .devices li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    padding: 0.45rem 0.65rem;
+    border-bottom: 1px solid #eee;
+  }
+
+  .devices li:last-child {
+    border-bottom: none;
+  }
+
+  .devices .empty {
+    color: #777;
+    font-style: italic;
+  }
+
+  button.dev {
+    flex: 0 0 auto;
+  }
+
+  .name {
+    font-weight: 600;
+  }
+
+  .addr {
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+  }
+
+  .rssi {
+    font-size: 0.85rem;
+    color: #666;
+  }
+
+  .log {
+    font-size: 0.8rem;
+    background: #1e1e1e;
+    color: #e0e0e0;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    max-height: 12rem;
+    overflow: auto;
+  }
+
+  .log h2 {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .hint {
+      color: #aaa;
+    }
+
+    .readout {
+      background: #2a2a2a;
+      color: #eee;
+    }
+
+    .devices {
+      border-color: #444;
+    }
+
+    .devices li {
+      border-bottom-color: #333;
+    }
+  }
 </style>
