@@ -11,12 +11,18 @@ importers:
       '@mnlphlp/plugin-blec':
         specifier: ^0.8.0
         version: 0.8.0
+      '@skeletonlabs/skeleton':
+        specifier: ^4.15.2
+        version: 4.15.2(tailwindcss@4.2.2)
       '@tauri-apps/api':
         specifier: ^2.10.1
         version: 2.10.1
       '@tauri-apps/plugin-opener':
         specifier: ^2.5.3
         version: 2.5.3
+      '@tauri-apps/plugin-store':
+        specifier: ^2.4.2
+        version: 2.4.2
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
@@ -183,6 +189,11 @@ packages:
   '@rolldown/pluginutils@1.0.0-rc.15':
     resolution: {integrity: sha512-UromN0peaE53IaBRe9W7CjrZgXl90fqGpK+mIZbA3qSTeYqg3pqpROBdIPvOG3F5ereDHNwoHBI2e50n1BDr1g==}
 
+  '@skeletonlabs/skeleton@4.15.2':
+    resolution: {integrity: sha512-5O23Py76nw56aoieV2b2T7MJ6xS0DwDjUULpwLnCXxXOnmzADEoWoQxb/ABbqg04IMOygtRzK3HO22I1+kFsog==}
+    peerDependencies:
+      tailwindcss: ^4.0.0
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -300,6 +311,9 @@ packages:
 
   '@tauri-apps/plugin-opener@2.5.3':
     resolution: {integrity: sha512-CCcUltXMOfUEArbf3db3kCE7Ggy1ExBEBl51Ko2ODJ6GDYHRp1nSNlQm5uNCFY5k7/ufaK5Ib3Du/Zir19IYQQ==}
+
+  '@tauri-apps/plugin-store@2.4.2':
+    resolution: {integrity: sha512-0ClHS50Oq9HEvLPhNzTNFxbWVOqoAp3dRvtewQBeqfIQ0z5m3JRnOISIn2ZVPCrQC0MyGyhTS9DWhHjpigQE7A==}
 
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
@@ -524,6 +538,9 @@ packages:
     resolution: {integrity: sha512-dS1N+i3bA1v+c4UDb750MlN5vCO82G6vxh8HeTsPsTdJ1BLsN1zxSyDlIdBBqUjqZ/BxEwM8UrFf98aaoVnZFQ==}
     engines: {node: '>=18'}
 
+  tailwindcss@4.2.2:
+    resolution: {integrity: sha512-KWBIxs1Xb6NoLdMVqhbhgwZf2PGBpPEiwOqgI4pFIYbNTfBXiKYyWoTsXgBQ9WFg/OlhnvHaY+AEpW7wSmFo2Q==}
+
   tinyglobby@0.2.16:
     resolution: {integrity: sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg==}
     engines: {node: '>=12.0.0'}
@@ -697,6 +714,10 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.0-rc.15': {}
 
+  '@skeletonlabs/skeleton@4.15.2(tailwindcss@4.2.2)':
+    dependencies:
+      tailwindcss: 4.2.2
+
   '@standard-schema/spec@1.1.0': {}
 
   '@sveltejs/acorn-typescript@1.0.9(acorn@8.16.0)':
@@ -786,6 +807,10 @@ snapshots:
       '@tauri-apps/cli-win32-x64-msvc': 2.10.1
 
   '@tauri-apps/plugin-opener@2.5.3':
+    dependencies:
+      '@tauri-apps/api': 2.10.1
+
+  '@tauri-apps/plugin-store@2.4.2':
     dependencies:
       '@tauri-apps/api': 2.10.1
 
@@ -981,6 +1006,8 @@ snapshots:
       zimmerframe: 1.1.4
     transitivePeerDependencies:
       - '@typescript-eslint/types'
+
+  tailwindcss@4.2.2: {}
 
   tinyglobby@0.2.16:
     dependencies:

@@ -1,0 +1,84 @@
+import type { BleDevice } from "@mnlphlp/plugin-blec";
+import { get, writable } from "svelte/store";
+import { readRememberedDevices, writeRememberedDevices } from "$lib/persistence/deviceStore";
+import type { RememberedDevice } from "$lib/types/device";
+import { bleAddressesEqual, deviceIdFromAddress } from "$lib/utils/deviceId";
+
+export const rememberedDevices = writable<RememberedDevice[]>([]);
+export const devicesHydrated = writable(false);
+
+export async function hydrateRememberedDevices(): Promise<void> {
+  const devices = await readRememberedDevices();
+  let changed = false;
+  const migrated = devices.map((device) => {
+    const address = device.address.trim();
+    const id = deviceIdFromAddress(address);
+    if (address !== device.address || id !== device.id) {
+      changed = true;
+      return { ...device, address, id };
+    }
+    return device;
+  });
+  rememberedDevices.set(migrated);
+  devicesHydrated.set(true);
+  if (changed) {
+    await writeRememberedDevices(migrated);
+  }
+}
+
+export function getRememberedByAddress(address: string): RememberedDevice | undefined {
+  return get(rememberedDevices).find((device) => bleAddressesEqual(device.address, address));
+}
+
+export function getRememberedById(id: string): RememberedDevice | undefined {
+  return get(rememberedDevices).find((device) => device.id === id);
+}
+
+export async function bindRememberedDevice(device: BleDevice): Promise<void> {
+  const now = new Date().toISOString();
+  const current = get(rememberedDevices);
+  const address = device.address.trim();
+  const nextDevice: RememberedDevice = {
+    id: deviceIdFromAddress(address),
+    address,
+    name: device.name || "Unknown device",
+    lastSeenAt: now,
+    profilePreference: "auto",
+    notificationsEnabled: true,
+  };
+  const withoutCurrent = current.filter((d) => !bleAddressesEqual(d.address, address));
+  const next = [nextDevice, ...withoutCurrent];
+  rememberedDevices.set(next);
+  await writeRememberedDevices(next);
+}
+
+export async function touchRememberedDevice(address: string, name?: string): Promise<void> {
+  const current = get(rememberedDevices);
+  const idx = current.findIndex((d) => bleAddressesEqual(d.address, address));
+  if (idx === -1) return;
+  const next = [...current];
+  next[idx] = {
+    ...next[idx],
+    name: name || next[idx].name,
+    lastSeenAt: new Date().toISOString(),
+  };
+  rememberedDevices.set(next);
+  await writeRememberedDevices(next);
+}
+
+export async function updateRememberedDevice(
+  id: string,
+  patch: Partial<Omit<RememberedDevice, "id" | "address">>,
+): Promise<void> {
+  const current = get(rememberedDevices);
+  const next = current.map((device) => (device.id === id ? { ...device, ...patch } : device));
+  rememberedDevices.set(next);
+  await writeRememberedDevices(next);
+}
+
+export async function forgetRememberedDevice(id: string): Promise<void> {
+  const next = get(rememberedDevices).filter((device) => device.id !== id);
+  rememberedDevices.set(next);
+  await writeRememberedDevices(next);
+}
+

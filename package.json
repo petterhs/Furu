@@ -14,8 +14,10 @@
   "license": "MIT",
   "dependencies": {
     "@mnlphlp/plugin-blec": "^0.8.0",
+    "@skeletonlabs/skeleton": "^4.15.2",
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-opener": "^2.5.3"
+    "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-store": "^2.4.2"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
