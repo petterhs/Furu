@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
+  import { Switch } from "@skeletonlabs/skeleton-svelte";
   import { profiles } from "$lib/stores/bleSession";
   import {
     forgetRememberedDevice,
@@ -18,12 +19,6 @@
     await updateRememberedDevice(remembered.id, { profilePreference: value });
   }
 
-  async function onNotificationsChange(event: Event): Promise<void> {
-    if (!remembered) return;
-    const target = event.currentTarget as HTMLInputElement;
-    await updateRememberedDevice(remembered.id, { notificationsEnabled: target.checked });
-  }
-
   async function onForget(): Promise<void> {
     if (!remembered) return;
     await forgetRememberedDevice(remembered.id);
@@ -31,16 +26,20 @@
   }
 </script>
 
-<section class="stack">
-  <article class="card">
-    <h2>Device Settings</h2>
+<section class="grid gap-4">
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Device Settings</h2>
     {#if remembered}
-      <p><strong>{remembered.name}</strong></p>
-      <p class="mono">{remembered.address}</p>
+      <p class="m-0"><strong>{remembered.name}</strong></p>
+      <p class="m-0 mt-2 font-mono text-sm">{remembered.address}</p>
 
-      <label>
-        Profile preference
-        <select value={profilePreference} onchange={(e) => onPreferenceChange((e.currentTarget as HTMLSelectElement).value)}>
+      <label class="label mt-4">
+        <span class="label-text">Profile preference</span>
+        <select
+          class="select"
+          value={profilePreference}
+          onchange={(e) => onPreferenceChange((e.currentTarget as HTMLSelectElement).value)}
+        >
           <option value="auto">auto</option>
           {#each $profiles as profile (profile.id)}
             <option value={profile.id}>{profile.id}</option>
@@ -48,65 +47,29 @@
         </select>
       </label>
 
-      <label class="row">
-        <input
-          type="checkbox"
-          checked={notificationsEnabled}
-          onchange={onNotificationsChange}
-        />
-        Notifications enabled
-      </label>
+      <Switch
+        class="mt-4 flex w-full items-center justify-between gap-4"
+        checked={notificationsEnabled}
+        disabled={!remembered}
+        onCheckedChange={({ checked }) => {
+          if (!remembered) return;
+          void updateRememberedDevice(remembered.id, { notificationsEnabled: checked });
+        }}
+      >
+        <Switch.Label class="text-sm">Notifications enabled</Switch.Label>
+        <Switch.Control class="preset-filled-primary-500">
+          <Switch.Thumb />
+        </Switch.Control>
+      </Switch>
     {:else}
-      <p>Device not found.</p>
+      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Device not found.</p>
     {/if}
   </article>
 
-  <button type="button" class="danger" onclick={onForget} disabled={!remembered}>Forget / Unbind Device</button>
-  <a class="button" href="/home">Back to Home</a>
+  <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+    <button class="btn btn-sm preset-filled-error-500" type="button" onclick={onForget} disabled={!remembered}>
+      Forget / Unbind Device
+    </button>
+    <a class="btn btn-sm preset-tonal-surface no-underline sm:ml-auto" href="/home">Back to Home</a>
+  </div>
 </section>
-
-<style>
-  .stack {
-    display: grid;
-    gap: 0.9rem;
-  }
-  .card {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 0.75rem;
-    padding: 0.9rem;
-  }
-  h2 {
-    margin: 0 0 0.6rem;
-    font-size: 1rem;
-  }
-  label {
-    display: grid;
-    gap: 0.35rem;
-    margin-top: 0.65rem;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-  }
-  .mono {
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
-  }
-  select,
-  button,
-  .button {
-    border: 1px solid #c7c7c7;
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.7rem;
-    background: #f9f9f9;
-    text-decoration: none;
-    color: inherit;
-  }
-  .danger {
-    background: #8b1e1e;
-    border-color: #8b1e1e;
-    color: #fff;
-  }
-</style>

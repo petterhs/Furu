@@ -1,9 +1,19 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { onMount } from "svelte";
+  import { page } from "$app/state";
+  import { Navigation } from "@skeletonlabs/skeleton-svelte";
   import { initializeBleSession } from "$lib/stores/bleSession";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
+
   let { children }: { children: Snippet } = $props();
+
+  const pathname = $derived(page.url.pathname);
+
+  const links = [
+    { label: "Home", href: "/home", icon: "home" as const },
+    { label: "Debug", href: "/debug", icon: "debug" as const },
+  ];
 
   onMount(() => {
     void initializeBleSession();
@@ -11,75 +21,56 @@
   });
 </script>
 
-<div class="app-shell">
-  <header class="topbar">
-    <h1>Furu Companion</h1>
+{#snippet navIconHome()}
+  <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+{/snippet}
+
+{#snippet navIconDebug()}
+  <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path d="m14 3 1.5 1.5" stroke-linecap="round" />
+    <path d="M9 9 6.5 6.5a2.12 2.12 0 0 0-3 3L6 12" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="m15 15 2.5 2.5a2.12 2.12 0 0 0 3-3L18 12" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M12 22v-4" stroke-linecap="round" />
+    <path d="M12 8V2" stroke-linecap="round" />
+    <circle cx="12" cy="12" r="2" />
+  </svg>
+{/snippet}
+
+<div class="mx-auto flex min-h-dvh max-w-2xl flex-col">
+  <header
+    class="sticky top-0 z-10 border-b border-surface-200-800 bg-surface-50-950 px-4 py-3 backdrop-blur-sm"
+  >
+    <h1 class="m-0 text-base font-semibold">Furu Companion</h1>
   </header>
 
-  <main class="content">
+  <main class="flex-1 px-4 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]">
     {@render children()}
   </main>
 
-  <nav class="bottom-nav">
-    <a href="/home">Home</a>
-    <a href="/debug">Debug</a>
-  </nav>
+  <div class="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-0">
+    <div
+      class="pointer-events-auto w-full max-w-2xl border-t border-surface-200-800 pb-[max(env(safe-area-inset-bottom),0.5rem)]"
+    >
+      <Navigation layout="bar">
+        <Navigation.Menu class="grid grid-cols-2 gap-2">
+          {#each links as link (link.href)}
+            <Navigation.TriggerAnchor
+              href={link.href}
+              class="no-underline"
+              aria-current={pathname === link.href ? "page" : undefined}
+            >
+              {#if link.icon === "home"}
+                {@render navIconHome()}
+              {:else}
+                {@render navIconDebug()}
+              {/if}
+              <Navigation.TriggerText>{link.label}</Navigation.TriggerText>
+            </Navigation.TriggerAnchor>
+          {/each}
+        </Navigation.Menu>
+      </Navigation>
+    </div>
+  </div>
 </div>
-
-<style>
-  .app-shell {
-    min-height: 100dvh;
-    max-width: 44rem;
-    margin: 0 auto;
-    background: #f7f7f7;
-    color: #111;
-    display: flex;
-    flex-direction: column;
-    font-family: system-ui, sans-serif;
-  }
-
-  .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 5;
-    background: #ffffff;
-    border-bottom: 1px solid #ddd;
-    padding: 0.9rem 1rem;
-  }
-
-  .topbar h1 {
-    margin: 0;
-    font-size: 1.05rem;
-  }
-
-  .content {
-    flex: 1;
-    padding: 1rem;
-    padding-bottom: 5rem;
-  }
-
-  .bottom-nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    max-width: 44rem;
-    margin: 0 auto;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.5rem;
-    background: #ffffff;
-    border-top: 1px solid #ddd;
-    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
-  }
-
-  .bottom-nav a {
-    text-align: center;
-    text-decoration: none;
-    color: #0d47a1;
-    font-weight: 600;
-    padding: 0.4rem 0.2rem;
-    border-radius: 0.5rem;
-    background: #eef4ff;
-  }
-</style>

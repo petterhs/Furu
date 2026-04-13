@@ -25,131 +25,102 @@
   let notifMessage = $state("Hello from the companion app");
 </script>
 
-<section class="stack">
-  <article class="card">
-    <h2>Profile</h2>
-    <label>
-      Active profile
-      <select value={$activeProfileId} onchange={(e) => setActiveProfile((e.currentTarget as HTMLSelectElement).value)}>
+<section class="grid gap-4">
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Profile</h2>
+    <label class="label">
+      <span class="label-text">Active profile</span>
+      <select
+        class="select"
+        value={$activeProfileId}
+        onchange={(e) => setActiveProfile((e.currentTarget as HTMLSelectElement).value)}
+      >
         {#each $profiles as profile (profile.id)}
           <option value={profile.id}>{profile.label}</option>
         {/each}
       </select>
     </label>
-    <p>Features: {$activeFeatureIds.length ? $activeFeatureIds.join(", ") : "none"}</p>
+    <p class="m-0 mt-3 text-sm">
+      Features: {$activeFeatureIds.length ? $activeFeatureIds.join(", ") : "none"}
+    </p>
   </article>
 
-  <article class="card">
-    <h2>BLE Session</h2>
-    <div class="row">
-      <button type="button" onclick={refreshAdapter}>Adapter State</button>
-      <button type="button" onclick={() => requestBlePermissions(true)}>Permissions</button>
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">BLE Session</h2>
+    <div class="mb-3 flex flex-wrap gap-2">
+      <button class="btn btn-sm preset-tonal-surface" type="button" onclick={refreshAdapter}>Adapter State</button>
+      <button class="btn btn-sm preset-tonal-surface" type="button" onclick={() => requestBlePermissions(true)}>
+        Permissions
+      </button>
       {#if $scanning}
-        <button type="button" onclick={endScan}>Stop Scan</button>
+        <button class="btn btn-sm preset-tonal-surface" type="button" onclick={endScan}>Stop Scan</button>
       {:else}
-        <button type="button" onclick={beginScan}>Start Scan</button>
+        <button class="btn btn-sm preset-tonal-surface" type="button" onclick={beginScan}>Start Scan</button>
       {/if}
-      <button type="button" onclick={disconnectDevice} disabled={!$connected}>Disconnect</button>
+      <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice} disabled={!$connected}>
+        Disconnect
+      </button>
     </div>
-    <p>Adapter: {$adapterState}</p>
-    <p>Permissions: {$permissionsOk === null ? "unknown" : $permissionsOk ? "granted" : "denied"}</p>
-    <p>Connected: {$connected ? "yes" : "no"}</p>
+    <p class="m-0 text-sm">Adapter: {$adapterState}</p>
+    <p class="m-0 mt-1 text-sm">
+      Permissions: {$permissionsOk === null ? "unknown" : $permissionsOk ? "granted" : "denied"}
+    </p>
+    <p class="m-0 mt-1 text-sm">Connected: {$connected ? "yes" : "no"}</p>
   </article>
 
-  <article class="card">
-    <h2>GATT PoC Actions</h2>
-    <p>Uses features <code>{FeatureId.bleCurrentTime}</code> and <code>{FeatureId.bleAnss}</code>.</p>
-    <div class="row">
-      <button type="button" onclick={sendCurrentTime} disabled={!$connected}>Send Current Time</button>
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">GATT PoC Actions</h2>
+    <p class="m-0 text-sm">
+      Uses features <code class="font-mono text-xs">{FeatureId.bleCurrentTime}</code> and
+      <code class="font-mono text-xs">{FeatureId.bleAnss}</code>.
+    </p>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={sendCurrentTime} disabled={!$connected}>
+        Send Current Time
+      </button>
     </div>
-    <label>
-      Notification title
-      <input bind:value={notifTitle} />
+    <label class="label mt-3">
+      <span class="label-text">Notification title</span>
+      <input class="input" bind:value={notifTitle} />
     </label>
-    <label>
-      Notification message
-      <input bind:value={notifMessage} />
+    <label class="label mt-3">
+      <span class="label-text">Notification message</span>
+      <input class="input" bind:value={notifMessage} />
     </label>
-    <button type="button" onclick={() => sendNotification(notifTitle, notifMessage)} disabled={!$connected}>
+    <button
+      class="btn btn-sm preset-tonal-primary mt-3"
+      type="button"
+      onclick={() => sendNotification(notifTitle, notifMessage)}
+      disabled={!$connected}
+    >
       Send Notification
     </button>
   </article>
 
-  <article class="card">
-    <h2>Scan + Connect</h2>
-    <ul class="list">
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Scan + Connect</h2>
+    <ul class="m-0 grid list-none gap-2 p-0">
       {#each $scanResults as d (d.address)}
-        <li>
-          <span>{d.name || "Unknown"} ({d.address})</span>
-          <button type="button" onclick={() => connectTo(d.address)}>Connect</button>
+        <li class="flex items-center justify-between gap-3 border border-[color:var(--color-surface-200-800)] p-3 preset-tonal-surface">
+          <span class="min-w-0 truncate text-sm">{d.name || "Unknown"} ({d.address})</span>
+          <button class="btn btn-sm preset-filled-primary-500 shrink-0" type="button" onclick={() => connectTo(d.address)}>
+            Connect
+          </button>
         </li>
       {:else}
-        <li>No scan results yet.</li>
+        <li class="border border-[color:var(--color-surface-200-800)] p-3 text-sm preset-tonal-surface">
+          No scan results yet.
+        </li>
       {/each}
     </ul>
   </article>
 
-  <article class="card log">
-    <h2>Log</h2>
+  <article
+    class="card max-h-48 overflow-y-auto border border-[color:var(--color-surface-200-800)] p-4 font-mono text-xs preset-filled-surface-950-50"
+  >
+    <h2 class="m-0 mb-3 text-sm font-semibold">Log</h2>
     {#each $logLines as line (`${line}`)}
-      <div>{line}</div>
+      <div class="whitespace-pre-wrap">{line}</div>
     {/each}
   </article>
 </section>
-
-<style>
-  .stack {
-    display: grid;
-    gap: 0.9rem;
-  }
-  .card {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 0.75rem;
-    padding: 0.9rem;
-  }
-  h2 {
-    margin: 0 0 0.6rem;
-    font-size: 1rem;
-  }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-  label {
-    display: grid;
-    gap: 0.35rem;
-    margin-bottom: 0.5rem;
-  }
-  input,
-  select,
-  button {
-    border: 1px solid #c7c7c7;
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.7rem;
-    background: #fff;
-  }
-  .list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 0.5rem;
-  }
-  li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    align-items: center;
-  }
-  .log {
-    background: #1f1f1f;
-    color: #ececec;
-    max-height: 12rem;
-    overflow: auto;
-    font-family: ui-monospace, monospace;
-    font-size: 0.8rem;
-  }
-</style>

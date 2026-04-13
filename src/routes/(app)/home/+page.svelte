@@ -7,26 +7,33 @@
     Boolean($connected && $selectedAddress && bleAddressesEqual($selectedAddress, address));
 </script>
 
-<section class="stack">
+<section class="grid gap-4">
   {#if !$devicesHydrated}
-    <p>Loading devices...</p>
+    <p class="text-[color:var(--color-surface-700-300)]">Loading devices...</p>
   {:else if !$rememberedDevices.length}
-    <p>No remembered devices.</p>
+    <p class="text-[color:var(--color-surface-700-300)]">No remembered devices.</p>
   {:else}
     {#each $rememberedDevices as device (device.id)}
-      <div class="card">
-        <a class="card-body" href={`/device/${device.id}`}>
-          <div class="card-head">
-            <span class="device-name">{device.name}</span>
+      <div class="relative">
+        <a
+          class="card preset-tonal-surface block border border-[color:var(--color-surface-200-800)] pr-28 no-underline text-inherit outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--color-primary-500)]"
+          href={`/device/${device.id}`}
+        >
+          <div class="p-4">
+            <div class="font-bold text-[color:var(--color-primary-700-300)]">{device.name}</div>
+            <p class="m-0 mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">{device.address}</p>
           </div>
-          <p class="mono">{device.address}</p>
         </a>
 
-        <div class="card-corner">
+        <div class="absolute right-3 top-3 flex items-center justify-end">
           {#if isConnectedDevice(device.address)}
-            <span class="status connected">Connected</span>
+            <span class="badge preset-filled-success-500">Connected</span>
           {:else}
-            <button class="status connect-button" type="button" onclick={() => void connectTo(device.address)}>
+            <button
+              class="btn btn-sm preset-tonal-primary"
+              type="button"
+              onclick={() => void connectTo(device.address)}
+            >
               Connect
             </button>
           {/if}
@@ -35,84 +42,5 @@
     {/each}
   {/if}
 
-  <a class="button" href="/add">Add Device</a>
+  <a class="btn preset-filled-primary-500 w-full justify-center sm:w-auto" href="/add">Add Device</a>
 </section>
-
-<style>
-  .stack {
-    display: grid;
-    gap: 0.9rem;
-  }
-  .card {
-    position: relative;
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 0.75rem;
-    padding: 0;
-    overflow: hidden;
-  }
-  .card-body {
-    display: block;
-    padding: 0.9rem 5.75rem 0.9rem 0.9rem;
-    text-decoration: none;
-    color: inherit;
-  }
-  .card-body:focus-visible {
-    outline: 2px solid #0d47a1;
-    outline-offset: -2px;
-  }
-  .card-corner {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-  }
-  p {
-    margin: 0.25rem 0;
-  }
-  .card-head {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 0.6rem;
-  }
-  .device-name {
-    color: #0d47a1;
-    font-weight: 700;
-  }
-  .mono {
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
-    color: #666;
-  }
-  .status {
-    font-size: 0.8rem;
-    font-weight: 700;
-    border-radius: 999px;
-    padding: 0.3rem 0.6rem;
-    text-decoration: none;
-  }
-  .connected {
-    background: #e6f6ea;
-    color: #1b5e20;
-  }
-  .connect-button {
-    background: #eef4ff;
-    color: #0d47a1;
-    border: none;
-    cursor: pointer;
-    font: inherit;
-  }
-  .button {
-    display: inline-block;
-    text-align: center;
-    padding: 0.65rem 0.8rem;
-    border-radius: 0.6rem;
-    text-decoration: none;
-    background: #0d47a1;
-    color: #fff;
-    font-weight: 600;
-  }
-</style>

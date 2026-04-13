@@ -23,75 +23,47 @@
   const isConnectedAddressUnknown = $derived(Boolean($connected && !$selectedAddress));
 </script>
 
-<section class="stack">
-  <article class="card">
-    <h2>Device</h2>
+<section class="grid gap-4">
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Device</h2>
     {#if known}
-      <p><strong>{known.name}</strong></p>
-      <p class="mono">{known.address}</p>
-      <p class="muted">Last seen: {new Date(known.lastSeenAt).toLocaleString()}</p>
+      <p class="m-0"><strong>{known.name}</strong></p>
+      <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
+      <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
+        Last seen: {new Date(known.lastSeenAt).toLocaleString()}
+      </p>
     {:else}
-      <p class="mono">{resolvedAddress}</p>
+      <p class="m-0 font-mono text-sm">{resolvedAddress}</p>
     {/if}
   </article>
 
-  <article class="card">
-    <h2>Quick Actions</h2>
-    <div class="row">
-      <button type="button" onclick={() => connectTo(resolvedAddress)}>Connect</button>
-      <button type="button" onclick={disconnectDevice} disabled={!$connected}>Disconnect</button>
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Quick Actions</h2>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => connectTo(resolvedAddress)}>
+        Connect
+      </button>
+      <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice} disabled={!$connected}>
+        Disconnect
+      </button>
     </div>
     {#if isCurrentDevice}
-      <p>This device is currently connected.</p>
+      <p class="m-0 mt-3 text-sm">This device is currently connected.</p>
     {:else if isConnectedToOtherRememberedDevice}
-      <p class="muted">Connected to another device: <span class="mono">{$selectedAddress}</span></p>
+      <p class="m-0 mt-3 text-sm text-[color:var(--color-surface-700-300)]">
+        Connected to another device: <span class="font-mono">{$selectedAddress}</span>
+      </p>
     {:else if isConnectedAddressUnknown}
-      <p class="muted">Connected to a device, but the active device address is currently unknown.</p>
+      <p class="m-0 mt-3 text-sm text-[color:var(--color-surface-700-300)]">
+        Connected to a device, but the active device address is currently unknown.
+      </p>
     {:else}
-      <p class="muted">Not connected.</p>
+      <p class="m-0 mt-3 text-sm text-[color:var(--color-surface-700-300)]">Not connected.</p>
     {/if}
   </article>
 
-  <div class="row">
-    <a class="button" href={`/device/${deviceId}/history`}>History</a>
-    <a class="button" href={`/device/${deviceId}/settings`}>Settings</a>
+  <div class="flex flex-wrap gap-2">
+    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${deviceId}/history`}>History</a>
+    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${deviceId}/settings`}>Settings</a>
   </div>
 </section>
-
-<style>
-  .stack {
-    display: grid;
-    gap: 0.9rem;
-  }
-  .card {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 0.75rem;
-    padding: 0.9rem;
-  }
-  h2 {
-    margin: 0 0 0.6rem;
-    font-size: 1rem;
-  }
-  .row {
-    display: flex;
-    gap: 0.55rem;
-    flex-wrap: wrap;
-  }
-  button,
-  .button {
-    border: 1px solid #c7c7c7;
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.7rem;
-    background: #f9f9f9;
-    text-decoration: none;
-    color: inherit;
-  }
-  .mono {
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
-  }
-  .muted {
-    color: #666;
-  }
-</style>

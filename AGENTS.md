@@ -12,7 +12,7 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 |-------|--------|
 | Shell | **Tauri 2** (`src-tauri/`), Rust 2021 |
 | UI | **SvelteKit** + **Svelte 5** (`src/`), `ssr = false`, static adapter |
-| UI theming | **Tailwind CSS v4** + **Skeleton** — `@tailwindcss/vite` in [`vite.config.js`](vite.config.js); global imports in [`src/app.css`](src/app.css); active theme `catppuccin` via `data-theme` on `<html>` in [`src/app.html`](src/app.html) |
+| UI theming | **Tailwind CSS v4** + **Skeleton** — `@tailwindcss/vite` in [`vite.config.js`](vite.config.js); global imports in [`src/app.css`](src/app.css); active theme `catppuccin` via `data-theme` on `<html>` in [`src/app.html`](src/app.html). **Conventions:** prefer **Tailwind utilities** for layout/spacing/typography; use Skeleton **utilities** (`btn`, `card`, `input`, `select`, `preset-*`, …) for surfaces and controls; reach for **`@skeletonlabs/skeleton-svelte`** primitives when they remove bespoke interactive UI (for example `Navigation` in the app shell, `Switch` for settings toggles). Keep **scoped `<style>`** only for cases Tailwind/Skeleton cannot express cleanly. Prefer theme tokens / CSS variables over hard-coded hex colors. |
 | Package manager | **pnpm** |
 | BLE | **`tauri-plugin-blec`** + **`@mnlphlp/plugin-blec`** ([plugin repo](https://github.com/MnlPhlp/tauri-plugin-blec)) |
 | Environment | **devenv** + **direnv** (`.envrc`); use `devenv shell` before `cargo` / `pnpm` if tools are not on PATH |
