@@ -12,7 +12,7 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 |-------|--------|
 | Shell | **Tauri 2** (`src-tauri/`), Rust 2021 |
 | UI | **SvelteKit** + **Svelte 5** (`src/`), `ssr = false`, static adapter |
-| UI theming | **Skeleton** (`@skeletonlabs/skeleton`) — global stylesheet import in [`src/app.css`](src/app.css) (Skeleton v4 expects **Tailwind CSS v4** as a peer dependency; we have not wired a full Tailwind toolchain yet, so treat Skeleton as **baseline styling/tokens** for now) |
+| UI theming | **Tailwind CSS v4** + **Skeleton** — `@tailwindcss/vite` in [`vite.config.js`](vite.config.js); global imports in [`src/app.css`](src/app.css); active theme `catppuccin` via `data-theme` on `<html>` in [`src/app.html`](src/app.html) |
 | Package manager | **pnpm** |
 | BLE | **`tauri-plugin-blec`** + **`@mnlphlp/plugin-blec`** ([plugin repo](https://github.com/MnlPhlp/tauri-plugin-blec)) |
 | Environment | **devenv** + **direnv** (`.envrc`); use `devenv shell` before `cargo` / `pnpm` if tools are not on PATH |
