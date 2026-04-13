@@ -40,6 +40,7 @@ When you add or change a capability: update **catalog**, **Rust `FeatureId`**, a
 - **`src-tauri/tauri.conf.json`** — `bundle.android.minSdkVersion` is **26** (required by `tauri-plugin-blec`).
 - **`devenv.nix`** — Android **platforms 36 and 34** (plugin library targets API 34; app uses 36).
 - Generated Gradle under `src-tauri/gen/android/`; syncing `compileSdk` / `targetSdk` with `devenv.nix` comments avoids surprise SDK installs.
+- **Background BLE** — Local plugin **`tauri-plugin-ble-keepalive`** (`src-tauri/plugins/tauri-plugin-ble-keepalive/`) starts a **`connectedDevice` foreground service** with a **persistent notification** when the UI observes a BLE connection (Android 13+ also needs **notification runtime permission**). This keeps the process in a policy-compliant posture when the app is not in the foreground; it is **not** a substitute for robust native-side reconnect logic long term. JS-driven start/stop mirrors connection state today; moving ownership to Rust/Kotlin is a follow-up if reconnect must survive heavy throttling.
 
 ## Commands (quick reference)
 

@@ -1,0 +1,8 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Foreground service controls for keeping the BLE companion active in the Android background."
+permissions = [
+  "allow-start-service",
+  "allow-stop-service",
+]

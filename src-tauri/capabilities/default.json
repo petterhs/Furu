@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "blec:default"
+    "blec:default",
+    "ble-keepalive:default"
   ]
 }

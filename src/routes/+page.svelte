@@ -30,6 +30,19 @@
     logLines = [...logLines.slice(-80), `${new Date().toISOString().slice(11, 19)} ${msg}`];
   }
 
+  /** Android: foreground service + ongoing notification while BLE is connected (see AGENTS.md). */
+  async function syncAndroidBleKeepalive(isConnected: boolean) {
+    try {
+      if (isConnected) {
+        await invoke("plugin:ble-keepalive|start_service");
+      } else {
+        await invoke("plugin:ble-keepalive|stop_service");
+      }
+    } catch (e) {
+      log(`BLE keepalive (${isConnected ? "start" : "stop"}): ${String(e)}`);
+    }
+  }
+
   async function refreshProfileState() {
     try {
       activeProfileId = await invoke<string>("ble_get_active_profile");
@@ -50,6 +63,7 @@
       await getConnectionUpdates((state) => {
         connected = state;
         log(`connection: ${state ? "connected" : "disconnected"}`);
+        void syncAndroidBleKeepalive(state);
       });
       await getScanningUpdates((state) => {
         scanning = state;

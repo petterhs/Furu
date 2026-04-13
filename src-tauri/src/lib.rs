@@ -11,6 +11,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_blec::init())
+        .plugin(tauri_plugin_ble_keepalive::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             ble::commands::ble_list_profiles,
