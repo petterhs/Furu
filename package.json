@@ -20,6 +20,7 @@
     "@tauri-apps/plugin-store": "^2.4.2"
   },
   "devDependencies": {
+    "@lucide/svelte": "^1.8.0",
     "@skeletonlabs/skeleton-svelte": "^4.15.2",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.57.1",
