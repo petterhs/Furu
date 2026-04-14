@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { Bug, Home } from "@lucide/svelte";
+  import { Bug, Home, ScrollText } from "@lucide/svelte";
   import { Navigation } from "@skeletonlabs/skeleton-svelte";
   import { initializeBleSession } from "$lib/stores/bleSession";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
@@ -14,6 +14,7 @@
   const links: { label: string; href: string; icon: Component }[] = [
     { label: "Home", href: "/home", icon: Home },
     { label: "Debug", href: "/debug", icon: Bug },
+    { label: "Logs", href: "/logs", icon: ScrollText },
   ];
 
   onMount(() => {
@@ -37,7 +38,7 @@
     class="shrink-0 border-t border-surface-200-800 bg-surface-100-900 pb-[env(safe-area-inset-bottom,0px)]"
   >
     <Navigation layout="bar">
-      <Navigation.Menu class="grid grid-cols-2 gap-2">
+      <Navigation.Menu class="grid grid-cols-3 gap-2">
         {#each links as link (link.href)}
           {@const Icon = link.icon}
           <Navigation.TriggerAnchor

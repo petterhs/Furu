@@ -9,7 +9,6 @@
     connected,
     disconnectDevice,
     endScan,
-    logLines,
     permissionsOk,
     profiles,
     refreshAdapter,
@@ -113,14 +112,5 @@
         </li>
       {/each}
     </ul>
-  </article>
-
-  <article
-    class="card max-h-48 overflow-y-auto border border-[color:var(--color-surface-200-800)] p-4 font-mono text-xs preset-filled-surface-950-50"
-  >
-    <h2 class="m-0 mb-3 text-sm font-semibold">Log</h2>
-    {#each $logLines as line (`${line}`)}
-      <div class="whitespace-pre-wrap">{line}</div>
-    {/each}
   </article>
 </section>
