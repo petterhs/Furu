@@ -12,7 +12,7 @@ import {
 import { get, writable } from "svelte/store";
 import type { ProfileInfo } from "$lib/bleContract";
 import { ProfileId } from "$lib/bleContract";
-import { bindRememberedDevice, touchRememberedDevice } from "$lib/stores/devices";
+import { bindRememberedDevice, getRememberedByAddress, touchRememberedDevice } from "$lib/stores/devices";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
 
 export const scanResults = writable<BleDevice[]>([]);
@@ -25,6 +25,8 @@ export const profiles = writable<ProfileInfo[]>([]);
 export const activeProfileId = writable<string>(ProfileId.unknown);
 export const activeFeatureIds = writable<string[]>([]);
 export const selectedAddress = writable<string | null>(null);
+export const connectingAddress = writable<string | null>(null);
+export const connectError = writable<{ address: string; message: string } | null>(null);
 
 let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
@@ -137,30 +139,126 @@ export async function endScan(): Promise<void> {
   }
 }
 
-export async function connectTo(address: string): Promise<void> {
-  try {
-    const requested = address.trim();
-    const fromScan = get(scanResults).find((device) => bleAddressesEqual(device.address, requested));
-    const connectAddress = fromScan?.address ?? requested;
-    await connect(connectAddress, () => pushLog("device disconnected (callback)"), false);
-    selectedAddress.set(connectAddress);
-    if (fromScan) {
-      void touchRememberedDevice(connectAddress, fromScan.name);
-    } else {
-      void bindRememberedDevice({
-        address: connectAddress,
-        name: "",
-        rssi: 0,
-        isConnected: true,
-        isBonded: false,
-        services: [],
-        manufacturerData: {},
-        serviceData: {},
+const CONNECT_SCAN_TIMEOUT_MS = 15_000;
+const CONNECT_ATTEMPT_TIMEOUT_MS = 12_000;
+
+async function connectWithTimeout(address: string, timeoutMs: number): Promise<void> {
+  await Promise.race([
+    connect(address, () => pushLog("device disconnected (callback)"), false),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`connect timeout after ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+    }),
+  ]);
+}
+
+/**
+ * Run a scan until `address` appears (or timeout). Some platforms only allow
+ * `connect` to peripherals seen during an active / recent scan.
+ *
+ * Does not stop the scan when a match appears — stopping before `connect` can
+ * drop the peripheral from the cache on some stacks; `connectTo` stops scan
+ * after attempting connection.
+ */
+function scanUntilAddressFound(address: string, timeoutMs: number): Promise<BleDevice | null> {
+  const requested = address.trim();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const settle = (device: BleDevice | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      resolve(device);
+    };
+
+    timeoutId = setTimeout(() => {
+      const match = get(scanResults).find((d) => bleAddressesEqual(d.address, requested));
+      settle(match ?? null);
+    }, timeoutMs);
+
+    startScan(
+      (devices) => {
+        scanResults.set(devices);
+        const match = devices.find((d) => bleAddressesEqual(d.address, requested));
+        if (!match || settled) return;
+        settle(match);
+      },
+      timeoutMs,
+      false,
+    )
+      .catch((error) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        reject(error);
       });
+  });
+}
+
+export async function connectTo(address: string): Promise<void> {
+  let stopScanAfterConnect = false;
+  const requested = address.trim();
+  if (!requested) return;
+  if (get(connectingAddress)) {
+    pushLog(`connect: already connecting to ${get(connectingAddress)}`);
+    return;
+  }
+  connectingAddress.set(requested);
+  connectError.set(null);
+  try {
+    const ok = await checkPermissions(true);
+    permissionsOk.set(ok);
+    if (!ok) {
+      connectError.set({ address: requested, message: "BLE permissions not granted." });
+      pushLog("connect: BLE permissions not granted");
+      return;
     }
-    pushLog(`connect requested: ${connectAddress}`);
+    try {
+      await stopScan();
+    } catch {
+      /* ignore: no scan in progress */
+    }
+    scanResults.set([]);
+    pushLog(`connect: scanning for ${requested}…`);
+    const fromScan = await scanUntilAddressFound(requested, CONNECT_SCAN_TIMEOUT_MS);
+    if (!fromScan) {
+      connectError.set({ address: requested, message: "Could not find the device while scanning." });
+      pushLog(`connect: device not found while scanning: ${requested}`);
+      return;
+    }
+    stopScanAfterConnect = true;
+
+    const connectAddress = fromScan.address;
+    try {
+      await connectWithTimeout(connectAddress, CONNECT_ATTEMPT_TIMEOUT_MS);
+      selectedAddress.set(connectAddress);
+      connectError.set(null);
+      if (getRememberedByAddress(connectAddress)) {
+        void touchRememberedDevice(connectAddress, fromScan.name);
+      } else {
+        void bindRememberedDevice(fromScan);
+      }
+      pushLog(`connect requested: ${connectAddress}`);
+    } finally {
+      if (stopScanAfterConnect) {
+        try {
+          await stopScan();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   } catch (error) {
+    connectError.set({ address: requested, message: "Could not connect to the device. Please try again." });
     pushLog(`connect error: ${String(error)}`);
+  } finally {
+    connectingAddress.set(null);
   }
 }
 

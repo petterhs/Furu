@@ -1,6 +1,13 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import { connected, connectTo, disconnectDevice, selectedAddress } from "$lib/stores/bleSession";
+  import {
+    connected,
+    connectError,
+    connectTo,
+    connectingAddress,
+    disconnectDevice,
+    selectedAddress,
+  } from "$lib/stores/bleSession";
   import { rememberedDevices } from "$lib/stores/devices";
   import { addressFromDeviceId, bleAddressesEqual } from "$lib/utils/deviceId";
 
@@ -21,6 +28,12 @@
     ),
   );
   const isConnectedAddressUnknown = $derived(Boolean($connected && !$selectedAddress));
+  const isConnectingDevice = $derived(
+    Boolean($connectingAddress && bleAddressesEqual($connectingAddress, resolvedAddress)),
+  );
+  const isConnectErrorForDevice = $derived(
+    Boolean($connectError && bleAddressesEqual($connectError.address, resolvedAddress)),
+  );
 </script>
 
 <section class="grid gap-4">
@@ -40,13 +53,21 @@
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
     <h2 class="m-0 mb-3 text-base font-semibold">Quick Actions</h2>
     <div class="flex flex-wrap gap-2">
-      <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => connectTo(resolvedAddress)}>
-        Connect
+      <button
+        class="btn btn-sm preset-filled-primary-500"
+        type="button"
+        onclick={() => void connectTo(resolvedAddress)}
+        disabled={isConnectingDevice}
+      >
+        {isConnectingDevice ? "Connecting…" : "Connect"}
       </button>
       <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice} disabled={!$connected}>
         Disconnect
       </button>
     </div>
+    {#if isConnectErrorForDevice}
+      <p class="m-0 mt-3 text-sm text-[color:var(--color-error-700-300)]">{$connectError?.message}</p>
+    {/if}
     {#if isCurrentDevice}
       <p class="m-0 mt-3 text-sm">This device is currently connected.</p>
     {:else if isConnectedToOtherRememberedDevice}

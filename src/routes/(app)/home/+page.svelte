@@ -1,10 +1,20 @@
 <script lang="ts">
-  import { connectTo, connected, selectedAddress } from "$lib/stores/bleSession";
+  import {
+    connectError,
+    connectTo,
+    connected,
+    connectingAddress,
+    selectedAddress,
+  } from "$lib/stores/bleSession";
   import { devicesHydrated, rememberedDevices } from "$lib/stores/devices";
   import { bleAddressesEqual } from "$lib/utils/deviceId";
 
   const isConnectedDevice = (address: string) =>
     Boolean($connected && $selectedAddress && bleAddressesEqual($selectedAddress, address));
+  const isConnectingDevice = (address: string) =>
+    Boolean($connectingAddress && bleAddressesEqual($connectingAddress, address));
+  const connectErrorFor = (address: string) =>
+    $connectError && bleAddressesEqual($connectError.address, address) ? $connectError.message : null;
 </script>
 
 <section class="grid gap-4">
@@ -33,11 +43,15 @@
               class="btn btn-sm preset-tonal-primary"
               type="button"
               onclick={() => void connectTo(device.address)}
+              disabled={isConnectingDevice(device.address)}
             >
-              Connect
+              {isConnectingDevice(device.address) ? "Connecting…" : "Connect"}
             </button>
           {/if}
         </div>
+        {#if connectErrorFor(device.address)}
+          <p class="m-0 mt-2 text-sm text-[color:var(--color-error-700-300)]">{connectErrorFor(device.address)}</p>
+        {/if}
       </div>
     {/each}
   {/if}

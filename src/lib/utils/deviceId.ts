@@ -1,13 +1,15 @@
-/** Normalize BLE addresses for comparisons (MAC-like strings). */
+/**
+ * Normalize BLE addresses for comparisons (48-bit public / random static MAC).
+ * Handles `AA:BB:…`, `aa-bb-…`, and compact `AABBCCDDEEFF`; case-insensitive.
+ */
 export function normalizeBleAddress(address: string): string {
   const trimmed = address.trim();
-  const looksMacLike = /[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}/.test(trimmed);
-  if (!looksMacLike) {
-    return trimmed;
-  }
-  const hex = trimmed.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
-  if (hex.length === 12) {
-    return hex.match(/.{1,2}/g)!.join(":");
+  const hexOnly = trimmed.replace(/[^0-9a-fA-F]/g, "");
+  if (hexOnly.length === 12) {
+    return hexOnly
+      .toLowerCase()
+      .match(/.{1,2}/g)!
+      .join(":");
   }
   return trimmed.toLowerCase();
 }
