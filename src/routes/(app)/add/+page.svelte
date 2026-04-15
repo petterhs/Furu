@@ -10,7 +10,6 @@
   import { ProfileId } from "$lib/bleContract";
   import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
-  import { bindRememberedDevice } from "$lib/stores/devices";
 
   let showUnknownDevices = $state(false);
   let cancelled = false;
@@ -83,9 +82,6 @@
               <div class="mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">RSSI {device.rssi}</div>
             </div>
             <div class="grid gap-2 sm:w-44 sm:justify-items-stretch">
-              <button class="btn btn-sm preset-tonal-primary" type="button" onclick={() => bindRememberedDevice(device)}>
-                Bind
-              </button>
               <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => connectTo(device.address)}>
                 Connect
               </button>
