@@ -13,6 +13,11 @@ val tauriProperties = Properties().apply {
     }
 }
 
+fun tauriPropOrEnv(propKey: String, envKey: String): String? {
+    return tauriProperties.getProperty(propKey)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
+}
+
 android {
     compileSdk = 36
     namespace = "com.furu_app"
@@ -24,13 +29,34 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        create("release") {
+            val storeFilePath = tauriPropOrEnv("tauri.android.signing.storeFile", "ANDROID_KEYSTORE_PATH")
+            val storePasswordValue = tauriPropOrEnv("tauri.android.signing.storePassword", "ANDROID_KEYSTORE_PASSWORD")
+            val keyAliasValue = tauriPropOrEnv("tauri.android.signing.keyAlias", "ANDROID_KEY_ALIAS")
+            val keyPasswordValue = tauriPropOrEnv("tauri.android.signing.keyPassword", "ANDROID_KEY_PASSWORD")
+
+            if (storeFilePath == null || storePasswordValue == null || keyAliasValue == null || keyPasswordValue == null) {
+                throw GradleException(
+                    "Missing Android release signing config. Set tauri.android.signing.* in app/tauri.properties " +
+                        "or env vars ANDROID_KEYSTORE_PATH, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.",
+                )
+            }
+
+            storeFile = file(storeFilePath)
+            storePassword = storePasswordValue
+            keyAlias = keyAliasValue
+            keyPassword = keyPasswordValue
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            packaging {                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
+            packaging {
+                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
@@ -38,6 +64,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
@@ -45,8 +72,12 @@ android {
             )
         }
     }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     buildFeatures {
         buildConfig = true

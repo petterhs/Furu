@@ -12,6 +12,7 @@ vite.config.ts.timestamp-*
 local.properties
 
 .android/
+**/*.keystore
 
 # Devenv
 .devenv*
