@@ -5,6 +5,7 @@
   import { Bug, Home, ScrollText, Settings } from "@lucide/svelte";
   import { Navigation } from "@skeletonlabs/skeleton-svelte";
   import { initializeBleSession } from "$lib/stores/bleSession";
+  import { hydrateBatteryHistory } from "$lib/stores/batteryHistory";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
 
   let { children }: { children: Snippet } = $props();
@@ -26,6 +27,7 @@
   onMount(() => {
     void initializeBleSession();
     void hydrateRememberedDevices();
+    void hydrateBatteryHistory();
   });
 </script>
 

@@ -14,6 +14,9 @@ import type { ProfileInfo } from "$lib/bleContract";
 import { FeatureId, ProfileId } from "$lib/bleContract";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
 import {
+  appendBatterySample,
+} from "$lib/stores/batteryHistory";
+import {
   bindRememberedDevice,
   clampCtsSyncIntervalMinutes,
   getRememberedByAddress,
@@ -153,6 +156,15 @@ async function refreshBatteryLevel(): Promise<void> {
     batteryPercent.set(level);
     batteryUpdatedAt.set(Date.now());
     batteryError.set(null);
+    const connectedAddress = get(selectedAddress);
+    if (connectedAddress) {
+      const remembered = getRememberedByAddress(connectedAddress);
+      if (remembered) {
+        await appendBatterySample(remembered.id, level);
+      } else {
+        pushLog(`battery read: sample skipped (unknown remembered device ${connectedAddress})`);
+      }
+    }
     pushLog(`battery read: ${level}%`);
   } catch (error) {
     batteryError.set(`Battery read failed: ${String(error)}`);
