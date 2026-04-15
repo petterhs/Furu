@@ -90,6 +90,7 @@ pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
         ProfileId::InfiniTime => &[
             FeatureId::BleDeviceInformation,
             FeatureId::BleCurrentTime,
+            FeatureId::BleBattery,
             FeatureId::BleHeartRate,
             FeatureId::BleAlertNotification,
             FeatureId::BleStepCount,

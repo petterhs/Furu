@@ -46,9 +46,14 @@ function builtinProfileIds(): Set<string> {
 function ensureBuiltinProfilesPresent(profiles: DeviceProfileDefinition[]): DeviceProfileDefinition[] {
   const map = new Map(profiles.map((p) => [p.id, p]));
   for (const seed of seedBuiltinProfiles()) {
-    if (!map.has(seed.id)) {
+    const existing = map.get(seed.id);
+    if (!existing) {
       map.set(seed.id, seed);
+      continue;
     }
+    // Keep user-edited labels/descriptions, but append newly introduced builtin capabilities.
+    const mergedFeatureIds = sanitizeFeatureIds([...existing.featureIds, ...seed.featureIds]);
+    map.set(seed.id, { ...existing, isBuiltin: true, featureIds: mergedFeatureIds });
   }
   const builtinIdSet = builtinProfileIds();
   const orderedBuiltins = seedBuiltinProfiles().map((s) => map.get(s.id)!);

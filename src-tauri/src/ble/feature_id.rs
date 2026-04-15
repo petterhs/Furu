@@ -6,6 +6,7 @@ use serde::Serialize;
 pub enum FeatureId {
     BleDeviceInformation,
     BleCurrentTime,
+    BleBattery,
     BleHeartRate,
     BleAlertNotification,
     BleStepCount,
@@ -19,6 +20,7 @@ impl FeatureId {
         match s {
             "ble.device_information" => Ok(Self::BleDeviceInformation),
             "ble.current_time" => Ok(Self::BleCurrentTime),
+            "ble.battery" => Ok(Self::BleBattery),
             "ble.hr" => Ok(Self::BleHeartRate),
             "ble.anss" => Ok(Self::BleAlertNotification),
             "ble.dis_steps" => Ok(Self::BleStepCount),
@@ -33,6 +35,7 @@ impl FeatureId {
         match self {
             Self::BleDeviceInformation => "ble.device_information",
             Self::BleCurrentTime => "ble.current_time",
+            Self::BleBattery => "ble.battery",
             Self::BleHeartRate => "ble.hr",
             Self::BleAlertNotification => "ble.anss",
             Self::BleStepCount => "ble.dis_steps",

@@ -41,6 +41,7 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
       featureIds: sanitizeFeatureIds([
         FeatureId.bleDeviceInformation,
         FeatureId.bleCurrentTime,
+        FeatureId.bleBattery,
         FeatureId.bleHr,
         FeatureId.bleAnss,
         FeatureId.bleDisSteps,

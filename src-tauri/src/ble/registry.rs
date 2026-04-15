@@ -13,3 +13,9 @@ pub const ALERT_NOTIFICATION_SERVICE_UUID: Uuid = uuid!("00001811-0000-1000-8000
 
 /// Bluetooth SIG **New Alert** characteristic (`0x2A46`).
 pub const NEW_ALERT_CHAR_UUID: Uuid = uuid!("00002A46-0000-1000-8000-00805F9B34FB");
+
+/// Bluetooth SIG Battery Service (`0x180F`).
+pub const BATTERY_SERVICE_UUID: Uuid = uuid!("0000180F-0000-1000-8000-00805F9B34FB");
+
+/// Bluetooth SIG Battery Level characteristic (`0x2A19`).
+pub const BATTERY_LEVEL_CHAR_UUID: Uuid = uuid!("00002A19-0000-1000-8000-00805F9B34FB");

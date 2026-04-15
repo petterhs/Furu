@@ -1,6 +1,8 @@
 <script lang="ts">
+  import Battery from "@lucide/svelte/icons/battery";
   import { page } from "$app/state";
   import {
+    batteryPercent,
     connected,
     connectError,
     connectTo,
@@ -45,6 +47,12 @@
       <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
         Last seen: {new Date(known.lastSeenAt).toLocaleString()}
       </p>
+      {#if isCurrentDevice && $batteryPercent !== null}
+        <p class="m-0 mt-2 flex items-center gap-1 text-sm">
+          <Battery class="size-4" />
+          {$batteryPercent}%
+        </p>
+      {/if}
     {:else}
       <p class="m-0 font-mono text-sm">{resolvedAddress}</p>
     {/if}

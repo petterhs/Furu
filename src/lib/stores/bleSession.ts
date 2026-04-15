@@ -40,11 +40,18 @@ export const activeFeatureIds = writable<string[]>([]);
 export const selectedAddress = writable<string | null>(null);
 export const connectingAddress = writable<string | null>(null);
 export const connectError = writable<{ address: string; message: string } | null>(null);
+export const batteryPercent = writable<number | null>(null);
+export const batteryUpdatedAt = writable<number | null>(null);
+export const batteryError = writable<string | null>(null);
 
 let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
 
 let ctsSyncIntervalId: ReturnType<typeof setInterval> | null = null;
+let batteryPollIntervalId: ReturnType<typeof setInterval> | null = null;
+let batteryReadInFlight = false;
+const BATTERY_POLL_INTERVAL_MS = 60_000;
+let lastBatteryGateLog: string | null = null;
 
 async function applySessionProfileAfterConnect(
   connectAddress: string,
@@ -109,6 +116,85 @@ function wireCtsSyncReconciliation(): void {
   run();
 }
 
+function clearBatteryState(): void {
+  batteryPercent.set(null);
+  batteryUpdatedAt.set(null);
+  batteryError.set(null);
+}
+
+function logBatteryGate(message: string): void {
+  if (lastBatteryGateLog === message) return;
+  lastBatteryGateLog = message;
+  pushLog(message);
+}
+
+async function refreshBatteryLevel(): Promise<void> {
+  if (batteryReadInFlight) {
+    logBatteryGate("battery polling: read already in flight");
+    return;
+  }
+  if (!get(connected)) {
+    logBatteryGate("battery polling: skipped (not connected)");
+    return;
+  }
+  if (!get(selectedAddress)) {
+    logBatteryGate("battery polling: skipped (no selected address)");
+    return;
+  }
+  if (!get(activeFeatureIds).includes(FeatureId.bleBattery)) {
+    logBatteryGate("battery polling: skipped (active profile lacks ble.battery)");
+    return;
+  }
+  lastBatteryGateLog = null;
+  batteryReadInFlight = true;
+  try {
+    pushLog("battery read: requesting BAS battery level");
+    const level = await invoke<number>("ble_read_battery_percentage");
+    batteryPercent.set(level);
+    batteryUpdatedAt.set(Date.now());
+    batteryError.set(null);
+    pushLog(`battery read: ${level}%`);
+  } catch (error) {
+    batteryError.set(`Battery read failed: ${String(error)}`);
+    pushLog(`battery read error: ${String(error)}`);
+  } finally {
+    batteryReadInFlight = false;
+  }
+}
+
+function reconcileBatteryPolling(): void {
+  if (batteryPollIntervalId !== null) {
+    clearInterval(batteryPollIntervalId);
+    batteryPollIntervalId = null;
+  }
+  if (!get(connected) || !get(selectedAddress)) {
+    logBatteryGate("battery polling: disabled (missing connection context)");
+    clearBatteryState();
+    return;
+  }
+  if (!get(activeFeatureIds).includes(FeatureId.bleBattery)) {
+    logBatteryGate("battery polling: disabled (feature gate ble.battery missing)");
+    clearBatteryState();
+    return;
+  }
+  logBatteryGate("battery polling: enabled");
+  void refreshBatteryLevel();
+  batteryPollIntervalId = setInterval(() => {
+    void refreshBatteryLevel();
+  }, BATTERY_POLL_INTERVAL_MS);
+}
+
+function wireBatteryPollingReconciliation(): void {
+
+  const run = () => {
+    reconcileBatteryPolling();
+  };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  activeFeatureIds.subscribe(run);
+  run();
+}
+
 function pushLog(message: string): void {
   const line = `${new Date().toISOString().slice(11, 19)} ${message}`;
   logLines.update((lines) => [...lines.slice(-80), line]);
@@ -167,6 +253,7 @@ export async function initializeBleSession(): Promise<void> {
   });
 
   wireCtsSyncReconciliation();
+  wireBatteryPollingReconciliation();
 }
 
 /** Subscribe to live BLE connection updates (mirrors the single native subscription). */

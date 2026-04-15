@@ -1,5 +1,7 @@
 <script lang="ts">
+  import Battery from "@lucide/svelte/icons/battery";
   import {
+    batteryPercent,
     connectError,
     connectTo,
     connected,
@@ -32,6 +34,12 @@
           <div class="p-4">
             <div class="font-bold text-[color:var(--color-primary-700-300)]">{device.name}</div>
             <p class="m-0 mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">{device.address}</p>
+            {#if isConnectedDevice(device.address) && $batteryPercent !== null}
+              <p class="m-0 mt-2 flex items-center gap-1 text-sm text-[color:var(--color-surface-900-100)]">
+                <Battery class="size-4" />
+                {$batteryPercent}%
+              </p>
+            {/if}
           </div>
         </a>
 

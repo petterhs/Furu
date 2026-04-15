@@ -89,3 +89,24 @@ pub async fn ble_poc_send_notification(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Reads the SIG Battery Level (`0x2A19` on `0x180F`) and returns percentage (0-100).
+#[tauri::command]
+pub async fn ble_read_battery_percentage() -> Result<u8, String> {
+    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
+    let bytes = handler
+        .recv_data(
+            registry::BATTERY_LEVEL_CHAR_UUID,
+            Some(registry::BATTERY_SERVICE_UUID),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let Some(level) = bytes.first().copied() else {
+        return Err("battery level read returned empty payload".to_string());
+    };
+    if level > 100 {
+        return Err(format!("battery level out of range: {level}"));
+    }
+    Ok(level)
+}

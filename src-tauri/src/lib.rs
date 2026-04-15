@@ -22,6 +22,7 @@ pub fn run() {
             ble::commands::ble_list_features_for_active_profile,
             ble::commands::ble_poc_send_current_time,
             ble::commands::ble_poc_send_notification,
+            ble::commands::ble_read_battery_percentage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
