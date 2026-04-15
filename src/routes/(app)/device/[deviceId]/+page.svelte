@@ -67,15 +67,12 @@
     <div class="mb-3 flex items-center justify-between gap-2">
       <h2 class="m-0 text-base font-semibold">Device</h2>
       <a
-        class="btn btn-icon btn-sm border border-[color:var(--color-primary-600)] bg-[color:var(--color-primary-500)] text-white no-underline"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--color-primary-600)] bg-[color:var(--color-primary-500)] text-white no-underline"
         href={`/device/${routeDeviceKey}/settings`}
         aria-label="Open device settings"
       >
-        <Settings class="size-4 !text-white !stroke-white" />
-        <Settings class="size-4" />
-          <Battery class="size-4" />
+        <Settings class="size-4 text-white" />
       </a>
-        <Settings class="size-4" />
     </div>
     {#if known}
       <p class="m-0"><strong>{known.name}</strong></p>
