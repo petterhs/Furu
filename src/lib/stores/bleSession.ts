@@ -198,13 +198,15 @@ export async function refreshAdapter(): Promise<void> {
   }
 }
 
-export async function requestBlePermissions(ask: boolean): Promise<void> {
+export async function requestBlePermissions(ask: boolean): Promise<boolean> {
   try {
     const ok = await checkPermissions(ask);
     permissionsOk.set(ok);
     pushLog(`permissions (${ask ? "may prompt" : "no prompt"}): ${ok}`);
+    return ok;
   } catch (error) {
     pushLog(`permissions error: ${String(error)}`);
+    return false;
   }
 }
 
