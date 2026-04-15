@@ -52,6 +52,27 @@ pub fn ble_list_features_for_active_profile() -> Result<Vec<String>, String> {
     Ok(session.active_feature_ids.clone())
 }
 
+#[tauri::command]
+pub fn ble_set_notification_forwarding_enabled(enabled: bool) -> Result<(), String> {
+    let mut s = session::global().lock().map_err(|e| e.to_string())?;
+    s.notification_forwarding_enabled = enabled;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn ble_set_active_device_notifications_enabled(enabled: bool) -> Result<(), String> {
+    let mut s = session::global().lock().map_err(|e| e.to_string())?;
+    s.active_device_notifications_enabled = enabled;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn ble_set_connection_state(connected: bool) -> Result<(), String> {
+    let mut s = session::global().lock().map_err(|e| e.to_string())?;
+    s.connection_active = connected;
+    Ok(())
+}
+
 /// Writes **local** time to the SIG Current Time characteristic (`0x2A2B` on `0x1805`).
 /// The peer must implement CTS and allow writes; many watches only accept this from a bonded companion.
 #[tauri::command]

@@ -8,6 +8,7 @@
     "opener:default",
     "blec:default",
     "ble-keepalive:default",
+    "notification-forwarder:default",
     "store:default"
   ]
 }

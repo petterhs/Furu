@@ -12,7 +12,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_blec::init())
         .plugin(tauri_plugin_ble_keepalive::init())
+        .plugin(tauri_plugin_notification_forwarder::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .setup(|app| {
+            ble::notification_forwarding::spawn_background_forwarder(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             ble::commands::ble_list_profiles,
@@ -20,6 +25,9 @@ pub fn run() {
             ble::commands::ble_set_active_profile,
             ble::commands::ble_set_active_capabilities,
             ble::commands::ble_list_features_for_active_profile,
+            ble::commands::ble_set_notification_forwarding_enabled,
+            ble::commands::ble_set_active_device_notifications_enabled,
+            ble::commands::ble_set_connection_state,
             ble::commands::ble_poc_send_current_time,
             ble::commands::ble_poc_send_notification,
             ble::commands::ble_read_battery_percentage,

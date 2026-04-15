@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-permission-status"
+description = "Enables the get_permission_status command without any pre-configured scope."
+commands.allow = ["get_permission_status"]
+
+[[permission]]
+identifier = "deny-get-permission-status"
+description = "Denies the get_permission_status command without any pre-configured scope."
+commands.deny = ["get_permission_status"]

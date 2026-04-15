@@ -19,9 +19,42 @@
     sendNotification,
     setActiveProfile,
   } from "$lib/stores/bleSession";
+  import {
+    drainNotifications,
+    postTestNotification,
+    type ForwardedNotification,
+  } from "$lib/stores/notificationForwarder";
 
   let notifTitle = $state("Furu");
   let notifMessage = $state("Hello from the companion app");
+  let testTitle = $state("Furu debug test");
+  let testMessage = $state("This should enter the notification drain queue");
+  let drained = $state<ForwardedNotification[]>([]);
+  let testingBusy = $state(false);
+  let testError = $state<string | null>(null);
+
+  async function sendTestNotification() {
+    testError = null;
+    await postTestNotification(testTitle, testMessage);
+  }
+
+  async function drainNow() {
+    testingBusy = true;
+    testError = null;
+    try {
+      drained = await drainNotifications();
+    } catch (error) {
+      testError = error instanceof Error ? error.message : "Failed to drain notifications.";
+    } finally {
+      testingBusy = false;
+    }
+  }
+
+  async function sendAndDrain() {
+    await sendTestNotification();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await drainNow();
+  }
 </script>
 
 <section class="grid gap-4">
@@ -109,6 +142,52 @@
       {:else}
         <li class="border border-[color:var(--color-surface-200-800)] p-3 text-sm preset-tonal-surface">
           No scan results yet.
+        </li>
+      {/each}
+    </ul>
+  </article>
+
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Notification Forwarder Test</h2>
+    <label class="label">
+      <span class="label-text">Notification title</span>
+      <input class="input" bind:value={testTitle} />
+    </label>
+    <label class="label mt-3">
+      <span class="label-text">Notification message</span>
+      <input class="input" bind:value={testMessage} />
+    </label>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        class="btn btn-sm preset-tonal-surface"
+        type="button"
+        onclick={sendTestNotification}
+        disabled={testingBusy}
+      >
+        Post local test notification
+      </button>
+      <button class="btn btn-sm preset-tonal-surface" type="button" onclick={drainNow} disabled={testingBusy}>
+        Drain now
+      </button>
+      <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={sendAndDrain} disabled={testingBusy}>
+        Post + drain
+      </button>
+    </div>
+    <p class="m-0 mt-3 text-sm">Drained count: {drained.length}</p>
+    {#if testError}
+      <p class="m-0 mt-2 text-sm text-red-500">{testError}</p>
+    {/if}
+    <ul class="m-0 mt-3 grid list-none gap-2 p-0">
+      {#each drained as item, index (`${item.packageName}-${item.postedAtMs}-${index}`)}
+        <li class="border border-[color:var(--color-surface-200-800)] p-3 text-sm preset-tonal-surface">
+          <p class="m-0"><span class="font-semibold">Package:</span> {item.packageName}</p>
+          <p class="m-0 mt-1"><span class="font-semibold">Title:</span> {item.title}</p>
+          <p class="m-0 mt-1"><span class="font-semibold">Message:</span> {item.message}</p>
+          <p class="m-0 mt-1"><span class="font-semibold">Time:</span> {new Date(item.postedAtMs).toLocaleTimeString()}</p>
+        </li>
+      {:else}
+        <li class="border border-[color:var(--color-surface-200-800)] p-3 text-sm preset-tonal-surface">
+          No drained notifications yet.
         </li>
       {/each}
     </ul>

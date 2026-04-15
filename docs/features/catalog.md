@@ -28,7 +28,7 @@ In the Furu app, built-in rows above correspond to **default** device profiles; 
 | `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (manual + optional periodic sync from UI; `ble_poc_send_current_time`) |
 | `ble.battery` | Standard (SIG) | `0x180F` (Battery Service), `0x2A19` (Battery Level) | Battery percentage (0-100) | WIP (connected-only read + periodic polling from UI) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | HR notifications | not started |
-| `ble.anss` | Standard (SIG) | `0x1811` / **New Alert** `0x2A46` | InfiniTime: `title\0message` after 3-byte ANS header (see `ble::ans`) | WIP (`ble_poc_send_notification`) |
+| `ble.anss` | Standard (SIG) | `0x1811` / **New Alert** `0x2A46` | InfiniTime: `title\0message` after 3-byte ANS header (see `ble::ans`) | done (manual send + Android system-notification forwarding with app/device gates and permissions page) |
 | `ble.dis_steps` | Standard (SIG) | Depends on firmware exposure | Step count; exact characteristic varies | not started |
 | `infinitime.dfu` | Vendor (InfiniTime) | Nordic DFU / InfiniTime OTA UUIDs in source | OTA firmware update state machine | not started |
 | `infinitime.companion_uart` | Vendor (InfiniTime) | Nordic UART-style companion service (confirm in source) | Binary framing per InfiniTime | not started |

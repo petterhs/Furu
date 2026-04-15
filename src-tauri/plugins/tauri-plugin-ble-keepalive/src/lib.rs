@@ -9,6 +9,9 @@ mod commands;
 
 pub use commands::{start_service, stop_service};
 
+#[cfg(target_os = "android")]
+pub(crate) struct BleKeepaliveHandle<R: Runtime>(pub tauri::plugin::PluginHandle<R>);
+
 pub fn init<R: Runtime>() -> TauriPlugin<R, ()> {
     tauri::plugin::Builder::<R, ()>::new("ble-keepalive")
         .invoke_handler(tauri::generate_handler![commands::start_service, commands::stop_service])
@@ -17,7 +20,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R, ()> {
             {
                 let handle =
                     api.register_android_plugin(PLUGIN_IDENTIFIER, "BleKeepalivePlugin")?;
-                app.manage(handle);
+                app.manage(BleKeepaliveHandle(handle));
             }
             #[cfg(not(target_os = "android"))]
             let _ = (app, api);

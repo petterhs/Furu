@@ -1,0 +1,13 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Notification forwarding controls and status access."
+permissions = [
+  "allow-check-permissions",
+  "allow-get-permission-status",
+  "allow-open-notification-listener-settings",
+  "allow-drain-notifications",
+  "allow-list-recent-notifications",
+  "allow-wait-for-notifications",
+  "allow-post-test-notification",
+]

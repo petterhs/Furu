@@ -12,6 +12,7 @@ import {
 import { derived, get, writable, type Readable } from "svelte/store";
 import type { ProfileInfo } from "$lib/bleContract";
 import { FeatureId, ProfileId } from "$lib/bleContract";
+import { appSettings } from "$lib/stores/appSettings";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
 import {
   appendBatterySample,
@@ -207,6 +208,31 @@ function wireBatteryPollingReconciliation(): void {
   run();
 }
 
+async function syncNativeNotificationForwardingGates(): Promise<void> {
+  const isConnected = get(connected);
+  const globalEnabled = get(appSettings).notificationForwardingEnabled;
+  const addr = get(selectedAddress);
+  const deviceEnabled = addr ? (getRememberedByAddress(addr)?.notificationsEnabled ?? false) : false;
+  try {
+    await invoke("ble_set_connection_state", { connected: isConnected });
+    await invoke("ble_set_notification_forwarding_enabled", { enabled: globalEnabled });
+    await invoke("ble_set_active_device_notifications_enabled", { enabled: deviceEnabled });
+  } catch (error) {
+    pushLog(`notification gate sync error: ${String(error)}`);
+  }
+}
+
+function wireNotificationForwardingGateSync(): void {
+  const run = () => {
+    void syncNativeNotificationForwardingGates();
+  };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  rememberedDevices.subscribe(run);
+  appSettings.subscribe(run);
+  run();
+}
+
 function pushLog(message: string): void {
   const line = `${new Date().toISOString().slice(11, 19)} ${message}`;
   logLines.update((lines) => [...lines.slice(-80), line]);
@@ -266,6 +292,7 @@ export async function initializeBleSession(): Promise<void> {
 
   wireCtsSyncReconciliation();
   wireBatteryPollingReconciliation();
+  wireNotificationForwardingGateSync();
 }
 
 /** Subscribe to live BLE connection updates (mirrors the single native subscription). */

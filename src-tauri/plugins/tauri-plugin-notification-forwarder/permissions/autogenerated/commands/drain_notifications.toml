@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-drain-notifications"
+description = "Enables the drain_notifications command without any pre-configured scope."
+commands.allow = ["drain_notifications"]
+
+[[permission]]
+identifier = "deny-drain-notifications"
+description = "Denies the drain_notifications command without any pre-configured scope."
+commands.deny = ["drain_notifications"]

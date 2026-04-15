@@ -7,6 +7,8 @@
   import { initializeBleSession } from "$lib/stores/bleSession";
   import { hydrateBatteryHistory } from "$lib/stores/batteryHistory";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
+  import { hydrateAppSettings } from "$lib/stores/appSettings";
+  import { requestPromptablePermissions } from "$lib/stores/permissions";
 
   let { children }: { children: Snippet } = $props();
 
@@ -35,6 +37,8 @@
 
   onMount(() => {
     void initializeBleSession();
+    void hydrateAppSettings();
+    void requestPromptablePermissions();
     void hydrateRememberedDevices();
     void hydrateBatteryHistory();
   });

@@ -32,6 +32,17 @@ In the catalog, **Status** uses:
 | **WIP** | Partially implemented or unstable. |
 | **done** | Implemented for at least one profile; behaviour considered stable enough for daily use. |
 
+## Notification forwarding model (Android)
+
+Notification forwarding to the watch uses the `ble.anss` feature path and is gated by:
+
+- a **global app setting** (`notificationForwardingEnabled`, default on)
+- a **per-device setting** (`notificationsEnabled`, default on)
+- active BLE session/profile support for `ble.anss`
+- Android permissions (`POST_NOTIFICATIONS` + Notification Listener access)
+
+At launch, Furu checks prompt-able permissions and requests them when needed. The app also provides **Settings -> Permissions** to inspect status, request prompt-able permissions again, and jump to Android's Notification Access settings for listener access.
+
 ## References
 
 - [Bluetooth SIG specifications](https://www.bluetooth.com/specifications/specs/) (GATT services and characteristics).
