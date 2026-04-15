@@ -9,13 +9,13 @@
     selectedAddress,
   } from "$lib/stores/bleSession";
   import { rememberedDevices } from "$lib/stores/devices";
-  import { addressFromDeviceId, bleAddressesEqual } from "$lib/utils/deviceId";
+  import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId ?? "");
   const resolvedAddress = $derived(addressFromDeviceId(deviceId));
-  const known = $derived(
-    $rememberedDevices.find((item) => item.id === deviceId || bleAddressesEqual(item.address, resolvedAddress)),
-  );
+  const known = $derived(findRememberedByDeviceRouteParam(deviceId, $rememberedDevices));
+  /** Use stored id in child links so History/Settings URLs match `RememberedDevice.id` (encoded address). */
+  const routeDeviceKey = $derived(known?.id ?? deviceId);
   const isCurrentDevice = $derived(
     Boolean(known?.address && $selectedAddress && bleAddressesEqual($selectedAddress, known.address) && $connected),
   );
@@ -84,7 +84,7 @@
   </article>
 
   <div class="flex flex-wrap gap-2">
-    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${deviceId}/history`}>History</a>
-    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${deviceId}/settings`}>Settings</a>
+    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${routeDeviceKey}/history`}>History</a>
+    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${routeDeviceKey}/settings`}>Settings</a>
   </div>
 </section>

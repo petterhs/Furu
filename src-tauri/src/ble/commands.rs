@@ -2,6 +2,7 @@ use tauri_plugin_blec::models::WriteType;
 
 use super::ans;
 use super::cts;
+use super::feature_id::FeatureId;
 use super::profiles;
 use super::registry;
 use super::session;
@@ -14,27 +15,41 @@ pub fn ble_list_profiles() -> Vec<profiles::ProfileInfo> {
 #[tauri::command]
 pub fn ble_get_active_profile() -> Result<String, String> {
     let session = session::global().lock().map_err(|e| e.to_string())?;
-    Ok(session.active_profile.as_str().to_string())
+    Ok(session.active_profile_id.clone())
 }
 
+/// Sets built-in profile only and derives features from static [`profiles::features_for_profile`].
 #[tauri::command]
 pub fn ble_set_active_profile(profile_id: String) -> Result<(), String> {
     let id = profiles::ProfileId::parse(&profile_id)?;
+    let feature_strings: Vec<String> = profiles::features_for_profile(id)
+        .iter()
+        .map(|f| f.as_str().to_string())
+        .collect();
     let mut session = session::global().lock().map_err(|e| e.to_string())?;
-    session.active_profile = id;
+    session.active_profile_id = id.as_str().to_string();
+    session.active_feature_ids = feature_strings;
+    Ok(())
+}
+
+/// Sets arbitrary profile id (including custom ids) with a validated feature ID list.
+#[tauri::command]
+pub fn ble_set_active_capabilities(profile_id: String, feature_ids: Vec<String>) -> Result<(), String> {
+    let mut validated = Vec::with_capacity(feature_ids.len());
+    for s in feature_ids {
+        let _ = FeatureId::parse(&s)?;
+        validated.push(s);
+    }
+    let mut session = session::global().lock().map_err(|e| e.to_string())?;
+    session.active_profile_id = profile_id;
+    session.active_feature_ids = validated;
     Ok(())
 }
 
 #[tauri::command]
 pub fn ble_list_features_for_active_profile() -> Result<Vec<String>, String> {
-    let profile = session::global()
-        .lock()
-        .map_err(|e| e.to_string())?
-        .active_profile;
-    Ok(profiles::features_for_profile(profile)
-        .iter()
-        .map(|f| f.as_str().to_string())
-        .collect())
+    let session = session::global().lock().map_err(|e| e.to_string())?;
+    Ok(session.active_feature_ids.clone())
 }
 
 /// Writes **local** time to the SIG Current Time characteristic (`0x2A2B` on `0x1805`).

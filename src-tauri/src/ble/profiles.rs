@@ -9,6 +9,7 @@ pub enum ProfileId {
     #[default]
     Unknown,
     InfiniTimePlaceholder,
+    Kongle,
 }
 
 impl ProfileId {
@@ -17,6 +18,7 @@ impl ProfileId {
         match s {
             "unknown" => Ok(Self::Unknown),
             "infinitime_placeholder" => Ok(Self::InfiniTimePlaceholder),
+            "kongle" => Ok(Self::Kongle),
             _ => Err(format!("unknown profile id: {s}")),
         }
     }
@@ -26,12 +28,17 @@ impl ProfileId {
         match self {
             Self::Unknown => "unknown",
             Self::InfiniTimePlaceholder => "infinitime_placeholder",
+            Self::Kongle => "kongle",
         }
     }
 
     #[must_use]
     pub const fn all() -> &'static [ProfileId] {
-        &[ProfileId::Unknown, ProfileId::InfiniTimePlaceholder]
+        &[
+            ProfileId::Unknown,
+            ProfileId::InfiniTimePlaceholder,
+            ProfileId::Kongle,
+        ]
     }
 
     #[must_use]
@@ -39,6 +46,7 @@ impl ProfileId {
         match self {
             Self::Unknown => "Unknown",
             Self::InfiniTimePlaceholder => "InfiniTime (placeholder)",
+            Self::Kongle => "Kongle",
         }
     }
 
@@ -47,8 +55,9 @@ impl ProfileId {
         match self {
             Self::Unknown => "No features assumed until you pick a profile.",
             Self::InfiniTimePlaceholder => {
-                "Planned InfiniTime-oriented features; detection and impl not wired yet."
+                "InfiniTime-oriented GATT features (CTS, ANS, DFU, …); name rules can select this profile."
             }
+            Self::Kongle => "Kongle firmware; CTS only until more services are documented.",
         }
     }
 }
@@ -87,5 +96,6 @@ pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
             FeatureId::InfiniTimeDfu,
             FeatureId::InfiniTimeCompanionUart,
         ],
+        ProfileId::Kongle => &[FeatureId::BleCurrentTime],
     }
 }

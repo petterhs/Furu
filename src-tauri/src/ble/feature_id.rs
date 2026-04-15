@@ -15,6 +15,20 @@ pub enum FeatureId {
 
 impl FeatureId {
     #[must_use]
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "ble.device_information" => Ok(Self::BleDeviceInformation),
+            "ble.current_time" => Ok(Self::BleCurrentTime),
+            "ble.hr" => Ok(Self::BleHeartRate),
+            "ble.anss" => Ok(Self::BleAlertNotification),
+            "ble.dis_steps" => Ok(Self::BleStepCount),
+            "infinitime.dfu" => Ok(Self::InfiniTimeDfu),
+            "infinitime.companion_uart" => Ok(Self::InfiniTimeCompanionUart),
+            _ => Err(format!("unknown feature id: {s}")),
+        }
+    }
+
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BleDeviceInformation => "ble.device_information",

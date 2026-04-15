@@ -18,6 +18,7 @@ export type FeatureIdValue = (typeof FeatureId)[keyof typeof FeatureId];
 export const ProfileId = {
   unknown: "unknown",
   infinitimePlaceholder: "infinitime_placeholder",
+  kongle: "kongle",
 } as const;
 
 export type ProfileIdValue = (typeof ProfileId)[keyof typeof ProfileId];

@@ -9,10 +9,23 @@ import {
   startScan,
   stopScan,
 } from "@mnlphlp/plugin-blec";
-import { get, writable } from "svelte/store";
+import { derived, get, writable, type Readable } from "svelte/store";
 import type { ProfileInfo } from "$lib/bleContract";
-import { ProfileId } from "$lib/bleContract";
-import { bindRememberedDevice, getRememberedByAddress, touchRememberedDevice } from "$lib/stores/devices";
+import { FeatureId, ProfileId } from "$lib/bleContract";
+import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
+import {
+  bindRememberedDevice,
+  clampCtsSyncIntervalMinutes,
+  getRememberedByAddress,
+  rememberedDevices,
+  touchRememberedDevice,
+} from "$lib/stores/devices";
+import {
+  catalogToProfileInfos,
+  deviceProfileCatalog,
+  getFeatureIdsForProfileId,
+  hydrateDeviceProfiles,
+} from "$lib/stores/deviceProfiles";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
 
 export const scanResults = writable<BleDevice[]>([]);
@@ -21,7 +34,7 @@ export const scanning = writable(false);
 export const adapterState = writable<string>("—");
 export const permissionsOk = writable<boolean | null>(null);
 export const logLines = writable<string[]>([]);
-export const profiles = writable<ProfileInfo[]>([]);
+export const profiles: Readable<ProfileInfo[]> = derived(deviceProfileCatalog, catalogToProfileInfos);
 export const activeProfileId = writable<string>(ProfileId.unknown);
 export const activeFeatureIds = writable<string[]>([]);
 export const selectedAddress = writable<string | null>(null);
@@ -30,6 +43,71 @@ export const connectError = writable<{ address: string; message: string } | null
 
 let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
+
+let ctsSyncIntervalId: ReturnType<typeof setInterval> | null = null;
+
+async function applySessionProfileAfterConnect(
+  connectAddress: string,
+  advertisementName: string | undefined,
+): Promise<void> {
+  const remembered = getRememberedByAddress(connectAddress);
+  let profileId: string = ProfileId.unknown;
+  if (remembered?.profilePreference && remembered.profilePreference !== "auto") {
+    profileId = remembered.profilePreference;
+  } else if (remembered?.profilePreference === "auto") {
+    profileId = resolveProfileIdFromDeviceName(advertisementName, get(deviceProfileCatalog).nameRules);
+  }
+
+  const featureIds = getFeatureIdsForProfileId(profileId);
+
+  try {
+    await invoke("ble_set_active_capabilities", { profileId, featureIds });
+    activeProfileId.set(profileId);
+    await refreshProfileState();
+    pushLog(`session profile: ${profileId} (${featureIds.length} features)`);
+  } catch (error) {
+    pushLog(`ble_set_active_capabilities failed (${profileId}), falling back to unknown: ${String(error)}`);
+    try {
+      const fb = getFeatureIdsForProfileId(ProfileId.unknown);
+      await invoke("ble_set_active_capabilities", { profileId: ProfileId.unknown, featureIds: fb });
+      activeProfileId.set(ProfileId.unknown);
+      await refreshProfileState();
+    } catch (e2) {
+      pushLog(`ble_set_active_capabilities (unknown) error: ${String(e2)}`);
+    }
+  }
+}
+
+function reconcileCtsSyncTimer(): void {
+  if (ctsSyncIntervalId !== null) {
+    clearInterval(ctsSyncIntervalId);
+    ctsSyncIntervalId = null;
+  }
+  if (!get(connected)) return;
+  const addr = get(selectedAddress);
+  if (!addr) return;
+  const remembered = getRememberedByAddress(addr);
+  if (!remembered?.currentTimeSyncEnabled) return;
+  if (!get(activeFeatureIds).includes(FeatureId.bleCurrentTime)) return;
+
+  const minutes = clampCtsSyncIntervalMinutes(remembered.currentTimeSyncIntervalMinutes);
+  ctsSyncIntervalId = setInterval(() => {
+    void sendCurrentTime();
+  }, minutes * 60_000);
+  void sendCurrentTime();
+}
+
+function wireCtsSyncReconciliation(): void {
+  const run = () => {
+    reconcileCtsSyncTimer();
+  };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  activeFeatureIds.subscribe(run);
+  rememberedDevices.subscribe(run);
+  deviceProfileCatalog.subscribe(run);
+  run();
+}
 
 function pushLog(message: string): void {
   const line = `${new Date().toISOString().slice(11, 19)} ${message}`;
@@ -62,10 +140,15 @@ export async function initializeBleSession(): Promise<void> {
   initialized = true;
 
   try {
-    profiles.set(await invoke<ProfileInfo[]>("ble_list_profiles"));
+    await hydrateDeviceProfiles();
+  } catch (error) {
+    pushLog(`device profiles hydrate error: ${String(error)}`);
+  }
+
+  try {
     await refreshProfileState();
   } catch (error) {
-    pushLog(`ble_list_profiles error: ${String(error)}`);
+    pushLog(`refresh profile state error: ${String(error)}`);
   }
 
   const connectionChannel = new Channel<boolean>();
@@ -82,6 +165,8 @@ export async function initializeBleSession(): Promise<void> {
   await getScanningUpdates((state) => {
     scanning.set(state);
   });
+
+  wireCtsSyncReconciliation();
 }
 
 /** Subscribe to live BLE connection updates (mirrors the single native subscription). */
@@ -94,13 +179,14 @@ export function subscribeConnectionState(handler: (connected: boolean) => void):
 }
 
 export async function setActiveProfile(profileId: string): Promise<void> {
+  const featureIds = getFeatureIdsForProfileId(profileId);
   try {
-    await invoke("ble_set_active_profile", { profileId });
+    await invoke("ble_set_active_capabilities", { profileId, featureIds });
     activeProfileId.set(profileId);
     await refreshProfileState();
     pushLog(`active profile: ${profileId}`);
   } catch (error) {
-    pushLog(`ble_set_active_profile error: ${String(error)}`);
+    pushLog(`ble_set_active_capabilities error: ${String(error)}`);
   }
 }
 
@@ -240,10 +326,11 @@ export async function connectTo(address: string): Promise<void> {
       selectedAddress.set(connectAddress);
       connectError.set(null);
       if (getRememberedByAddress(connectAddress)) {
-        void touchRememberedDevice(connectAddress, fromScan.name);
+        await touchRememberedDevice(connectAddress, fromScan.name);
       } else {
-        void bindRememberedDevice(fromScan);
+        await bindRememberedDevice(fromScan);
       }
+      await applySessionProfileAfterConnect(connectAddress, fromScan.name);
       pushLog(`connect requested: ${connectAddress}`);
     } finally {
       if (stopScanAfterConnect) {

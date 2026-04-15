@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { Bug, Home, ScrollText } from "@lucide/svelte";
+  import { Bug, Home, ScrollText, Settings } from "@lucide/svelte";
   import { Navigation } from "@skeletonlabs/skeleton-svelte";
   import { initializeBleSession } from "$lib/stores/bleSession";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
@@ -11,10 +11,16 @@
 
   const pathname = $derived(page.url.pathname);
 
-  const links: { label: string; href: string; icon: Component }[] = [
+  const links: { label: string; href: string; icon: Component; match?: (path: string) => boolean }[] = [
     { label: "Home", href: "/home", icon: Home },
     { label: "Debug", href: "/debug", icon: Bug },
-    { label: "Logs", href: "/logs", icon: ScrollText },
+    { label: "Logs", href: "/log", icon: ScrollText },
+    {
+      label: "Settings",
+      href: "/settings",
+      icon: Settings,
+      match: (path) => path === "/settings" || path.startsWith("/settings/"),
+    },
   ];
 
   onMount(() => {
@@ -38,13 +44,14 @@
     class="shrink-0 border-t border-surface-200-800 bg-surface-100-900 pb-[env(safe-area-inset-bottom,0px)]"
   >
     <Navigation layout="bar">
-      <Navigation.Menu class="grid grid-cols-3 gap-2">
+      <Navigation.Menu class="grid grid-cols-4 gap-2">
         {#each links as link (link.href)}
           {@const Icon = link.icon}
+          {@const isCurrent = link.match ? link.match(pathname) : pathname === link.href}
           <Navigation.TriggerAnchor
             href={link.href}
             class="no-underline"
-            aria-current={pathname === link.href ? "page" : undefined}
+            aria-current={isCurrent ? "page" : undefined}
           >
             <Icon class="size-5" aria-hidden="true" />
             <Navigation.TriggerText>{link.label}</Navigation.TriggerText>

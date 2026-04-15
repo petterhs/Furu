@@ -7,17 +7,47 @@ import { bleAddressesEqual, deviceIdFromAddress } from "$lib/utils/deviceId";
 export const rememberedDevices = writable<RememberedDevice[]>([]);
 export const devicesHydrated = writable(false);
 
+export const CTS_SYNC_MIN_MINUTES = 5;
+export const CTS_SYNC_MAX_MINUTES = 1440;
+export const CTS_SYNC_DEFAULT_MINUTES = 60;
+
+export function clampCtsSyncIntervalMinutes(n: number | undefined): number {
+  const v = n === undefined || Number.isNaN(n) ? CTS_SYNC_DEFAULT_MINUTES : Math.round(n);
+  return Math.min(CTS_SYNC_MAX_MINUTES, Math.max(CTS_SYNC_MIN_MINUTES, v));
+}
+
+function migrateRememberedDeviceShape(device: RememberedDevice): RememberedDevice {
+  return {
+    ...device,
+    notificationsEnabled: device.notificationsEnabled ?? true,
+    profilePreference: device.profilePreference ?? "auto",
+    currentTimeSyncEnabled: device.currentTimeSyncEnabled ?? true,
+    currentTimeSyncIntervalMinutes: clampCtsSyncIntervalMinutes(device.currentTimeSyncIntervalMinutes),
+    heartRateLoggingEnabled: device.heartRateLoggingEnabled ?? false,
+  };
+}
+
 export async function hydrateRememberedDevices(): Promise<void> {
   const devices = await readRememberedDevices();
   let changed = false;
   const migrated = devices.map((device) => {
     const address = device.address.trim();
     const id = deviceIdFromAddress(address);
-    if (address !== device.address || id !== device.id) {
-      changed = true;
-      return { ...device, address, id };
-    }
-    return device;
+    const raw = device as RememberedDevice & {
+      currentTimeSyncEnabled?: boolean;
+      currentTimeSyncIntervalMinutes?: number;
+    };
+    const needsAddr = address !== device.address || id !== device.id;
+    const needsCts =
+      raw.currentTimeSyncEnabled === undefined || raw.currentTimeSyncIntervalMinutes === undefined;
+    const needsHr = raw.heartRateLoggingEnabled === undefined;
+    const needsClamp =
+      raw.currentTimeSyncIntervalMinutes !== undefined &&
+      clampCtsSyncIntervalMinutes(raw.currentTimeSyncIntervalMinutes) !==
+        raw.currentTimeSyncIntervalMinutes;
+    if (needsAddr || needsCts || needsClamp || needsHr) changed = true;
+    const base: RememberedDevice = { ...device, address, id } as RememberedDevice;
+    return migrateRememberedDeviceShape(base);
   });
   rememberedDevices.set(migrated);
   devicesHydrated.set(true);
@@ -45,6 +75,9 @@ export async function bindRememberedDevice(device: BleDevice): Promise<void> {
     lastSeenAt: now,
     profilePreference: "auto",
     notificationsEnabled: true,
+    currentTimeSyncEnabled: true,
+    currentTimeSyncIntervalMinutes: CTS_SYNC_DEFAULT_MINUTES,
+    heartRateLoggingEnabled: false,
   };
   const withoutCurrent = current.filter((d) => !bleAddressesEqual(d.address, address));
   const next = [nextDevice, ...withoutCurrent];
@@ -71,7 +104,16 @@ export async function updateRememberedDevice(
   patch: Partial<Omit<RememberedDevice, "id" | "address">>,
 ): Promise<void> {
   const current = get(rememberedDevices);
-  const next = current.map((device) => (device.id === id ? { ...device, ...patch } : device));
+  const next = current.map((device) => {
+    if (device.id !== id) return device;
+    const merged: RememberedDevice = { ...device, ...patch };
+    if (patch.currentTimeSyncIntervalMinutes !== undefined) {
+      merged.currentTimeSyncIntervalMinutes = clampCtsSyncIntervalMinutes(
+        patch.currentTimeSyncIntervalMinutes,
+      );
+    }
+    return merged;
+  });
   rememberedDevices.set(next);
   await writeRememberedDevices(next);
 }

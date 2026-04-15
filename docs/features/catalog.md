@@ -5,7 +5,7 @@ Master list of **feature definitions** (IDs, GATT, classification, Furu implemen
 **Conventions**
 
 - UUIDs are 128-bit unless noted as 16-bit shorthand (e.g. `0x180D`).
-- **Profiles** in the app (`unknown`, `infinitime_placeholder`) are runtime selections for capability hints; **firmware columns** below describe real watch software (InfiniTime, Kongle, Wasp-os).
+- **Profiles** in the app (`unknown`, `infinitime_placeholder`, `kongle`) are runtime selections for capability hints; **firmware columns** below describe real watch software (InfiniTime, Kongle, Wasp-os).
 - Verify InfiniTime UUIDs against the [InfiniTime source tree](https://github.com/InfiniTimeOrg/InfiniTime) before relying on them in production.
 
 ## Profiles (app runtime)
@@ -15,14 +15,17 @@ These IDs match Rust/TS `ProfileId` for the companion app only—not the same as
 | Profile ID | Purpose |
 |------------|---------|
 | `unknown` | Device not classified; no optional features assumed for gating. |
-| `infinitime_placeholder` | Planned InfiniTime-oriented feature set; auto-detection not wired yet. |
+| `infinitime_placeholder` | InfiniTime-oriented GATT features (CTS, ANS, DFU, …); selectable manually or via name rules. |
+| `kongle` | Kongle-oriented profile; currently only `ble.current_time` (CTS) is enabled in-app. |
+
+In the Furu app, built-in rows above correspond to **default** device profiles; users can duplicate feature sets into **custom** profiles and adjust which catalog features are enabled per profile (see Settings → Device Profiles) without changing these stable profile **IDs**.
 
 ## Feature definitions
 
 | Feature ID | Classification | Primary service / characteristic | Protocol note | Furu status |
 |------------|----------------|-----------------------------------|---------------|-------------|
 | `ble.device_information` | Standard (SIG) | `0x180A` (Device Information) | Model, firmware revision, etc. | not started |
-| `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (`ble_poc_send_current_time`: local time, write with response) |
+| `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (manual + optional periodic sync from UI; `ble_poc_send_current_time`) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | HR notifications | not started |
 | `ble.anss` | Standard (SIG) | `0x1811` / **New Alert** `0x2A46` | InfiniTime: `title\0message` after 3-byte ANS header (see `ble::ans`) | WIP (`ble_poc_send_notification`) |
 | `ble.dis_steps` | Standard (SIG) | Depends on firmware exposure | Step count; exact characteristic varies | not started |
@@ -47,7 +50,7 @@ Which **firmware** is expected to support each **feature ID** when that stack is
 | Feature ID | InfiniTime | Kongle | Wasp-os |
 |------------|:----------:|:------:|:-------:|
 | `ble.device_information` | ✓ | — | — |
-| `ble.current_time` | ✓ | — | — |
+| `ble.current_time` | ✓ | ✓ | — |
 | `ble.hr` | ✓ | — | — |
 | `ble.anss` | ✓ | — | — |
 | `ble.dis_steps` | ✓ | — | — |
@@ -56,7 +59,7 @@ Which **firmware** is expected to support each **feature ID** when that stack is
 | `kongle.*` | — | — | — |
 | `wasp.*` | — | — | — |
 
-InfiniTime column uses ✓ where the capability is in scope for a typical InfiniTime-on-PineTime setup (still verify UUIDs and versions). Kongle and Wasp-os stay — until you define concrete feature rows and GATT.
+InfiniTime column uses ✓ where the capability is in scope for a typical InfiniTime-on-PineTime setup (still verify UUIDs and versions). Kongle `ble.current_time` is marked ✓ for the in-app `kongle` profile CTS path; other Kongle rows stay — until concrete GATT is pinned. Wasp-os stays — until you define concrete feature rows and GATT.
 
 ## Notes
 

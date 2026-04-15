@@ -36,6 +36,8 @@ When you add or change a capability: update **catalog**, **Rust `FeatureId`**, a
 
 `ProfileId` in Rust / TS is for **in-app** gating and UX (`unknown`, `infinitime_placeholder`, …). **Firmware support** is documented in the catalog’s **firmware matrix**, not by overloading profile names.
 
+**Device Profiles (Settings):** the app also persists a **device profile catalog** (`device-profiles.json` via Tauri Store): built-in and **custom** profiles, each with a user-editable **subset of known feature IDs**, plus name-detection rules for `auto`. On connect, the UI sends `ble_set_active_capabilities` so the Rust session’s active feature list matches that catalog. **Feature ID strings** remain defined in the catalog / `bleContract.ts` / `FeatureId` — the profile editor only toggles which of those IDs apply; adding a **new** capability still requires the usual catalog + Rust + TS alignment.
+
 ## Android / Nix
 
 - **`src-tauri/tauri.conf.json`** — `bundle.android.minSdkVersion` is **26** (required by `tauri-plugin-blec`).

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { rememberedDevices } from "$lib/stores/devices";
+  import { findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId);
-  const remembered = $derived($rememberedDevices.find((item) => item.id === deviceId));
+  const remembered = $derived(findRememberedByDeviceRouteParam(deviceId, $rememberedDevices));
 </script>
 
 <section class="grid gap-4">
