@@ -8,7 +8,7 @@ use super::feature_id::FeatureId;
 pub enum ProfileId {
     #[default]
     Unknown,
-    InfiniTimePlaceholder,
+    InfiniTime,
     Kongle,
 }
 
@@ -17,7 +17,7 @@ impl ProfileId {
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "unknown" => Ok(Self::Unknown),
-            "infinitime_placeholder" => Ok(Self::InfiniTimePlaceholder),
+            "infinitime" => Ok(Self::InfiniTime),
             "kongle" => Ok(Self::Kongle),
             _ => Err(format!("unknown profile id: {s}")),
         }
@@ -27,7 +27,7 @@ impl ProfileId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
-            Self::InfiniTimePlaceholder => "infinitime_placeholder",
+            Self::InfiniTime => "infinitime",
             Self::Kongle => "kongle",
         }
     }
@@ -36,7 +36,7 @@ impl ProfileId {
     pub const fn all() -> &'static [ProfileId] {
         &[
             ProfileId::Unknown,
-            ProfileId::InfiniTimePlaceholder,
+            ProfileId::InfiniTime,
             ProfileId::Kongle,
         ]
     }
@@ -45,7 +45,7 @@ impl ProfileId {
     pub fn label(self) -> &'static str {
         match self {
             Self::Unknown => "Unknown",
-            Self::InfiniTimePlaceholder => "InfiniTime (placeholder)",
+            Self::InfiniTime => "InfiniTime",
             Self::Kongle => "Kongle",
         }
     }
@@ -54,7 +54,7 @@ impl ProfileId {
     pub fn description(self) -> &'static str {
         match self {
             Self::Unknown => "No features assumed until you pick a profile.",
-            Self::InfiniTimePlaceholder => {
+            Self::InfiniTime => {
                 "InfiniTime-oriented GATT features (CTS, ANS, DFU, …); name rules can select this profile."
             }
             Self::Kongle => "Kongle firmware; CTS only until more services are documented.",
@@ -87,7 +87,7 @@ pub fn profile_infos() -> Vec<ProfileInfo> {
 pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
     match profile {
         ProfileId::Unknown => &[],
-        ProfileId::InfiniTimePlaceholder => &[
+        ProfileId::InfiniTime => &[
             FeatureId::BleDeviceInformation,
             FeatureId::BleCurrentTime,
             FeatureId::BleHeartRate,

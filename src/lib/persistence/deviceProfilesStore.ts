@@ -34,8 +34,8 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
       featureIds: [],
     },
     {
-      id: ProfileId.infinitimePlaceholder,
-      label: "InfiniTime (placeholder)",
+      id: ProfileId.infinitime,
+      label: "InfiniTime",
       description: "InfiniTime-oriented GATT features (CTS, ANS, DFU, …); editable in Device Profiles.",
       isBuiltin: true,
       featureIds: sanitizeFeatureIds([
@@ -64,7 +64,7 @@ export function defaultNameRules(): ProfileNameRule[] {
       id: "builtin-infinitime-contains",
       pattern: "InfiniTime",
       matchMode: "contains",
-      profileId: ProfileId.infinitimePlaceholder,
+      profileId: ProfileId.infinitime,
     },
     {
       id: "builtin-kongle-prefix",

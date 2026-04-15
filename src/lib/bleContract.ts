@@ -17,7 +17,7 @@ export type FeatureIdValue = (typeof FeatureId)[keyof typeof FeatureId];
 /** Same strings as Rust `ProfileId::as_str`. */
 export const ProfileId = {
   unknown: "unknown",
-  infinitimePlaceholder: "infinitime_placeholder",
+  infinitime: "infinitime",
   kongle: "kongle",
 } as const;
 

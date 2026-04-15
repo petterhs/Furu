@@ -15,7 +15,7 @@ export function defaultProfileNameRules(): ProfileNameRule[] {
       id: "builtin-infinitime-contains",
       pattern: "InfiniTime",
       matchMode: "contains",
-      profileId: ProfileId.infinitimePlaceholder,
+      profileId: ProfileId.infinitime,
     },
     {
       id: "builtin-kongle-prefix",

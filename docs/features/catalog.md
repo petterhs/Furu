@@ -5,7 +5,7 @@ Master list of **feature definitions** (IDs, GATT, classification, Furu implemen
 **Conventions**
 
 - UUIDs are 128-bit unless noted as 16-bit shorthand (e.g. `0x180D`).
-- **Profiles** in the app (`unknown`, `infinitime_placeholder`, `kongle`) are runtime selections for capability hints; **firmware columns** below describe real watch software (InfiniTime, Kongle, Wasp-os).
+- **Profiles** in the app (`unknown`, `infinitime`, `kongle`) are runtime selections for capability hints; **firmware columns** below describe real watch software (InfiniTime, Kongle, Wasp-os).
 - Verify InfiniTime UUIDs against the [InfiniTime source tree](https://github.com/InfiniTimeOrg/InfiniTime) before relying on them in production.
 
 ## Profiles (app runtime)
@@ -15,7 +15,7 @@ These IDs match Rust/TS `ProfileId` for the companion app only—not the same as
 | Profile ID | Purpose |
 |------------|---------|
 | `unknown` | Device not classified; no optional features assumed for gating. |
-| `infinitime_placeholder` | InfiniTime-oriented GATT features (CTS, ANS, DFU, …); selectable manually or via name rules. |
+| `infinitime` | InfiniTime-oriented GATT features (CTS, ANS, DFU, …); selectable manually or via name rules. |
 | `kongle` | Kongle-oriented profile; currently only `ble.current_time` (CTS) is enabled in-app. |
 
 In the Furu app, built-in rows above correspond to **default** device profiles; users can duplicate feature sets into **custom** profiles and adjust which catalog features are enabled per profile (see Settings → Device Profiles) without changing these stable profile **IDs**.

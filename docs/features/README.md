@@ -10,7 +10,7 @@ This folder documents every **product-facing BLE capability** Furu may implement
 | **Vendor (InfiniTime)** | Surfaces documented or implemented by [InfiniTime](https://github.com/InfiniTimeOrg/InfiniTime) for companion apps and watch integration. UUIDs and framing may be InfiniTime-specific even if they wrap standard concepts. |
 | **Firmware-specific** | Reserved for firmwares that are not InfiniTime—e.g. [Kongle](https://github.com/petterhs/Kongle), [Wasp-os](https://github.com/wasp-os/wasp-os). IDs and GATT layout are defined by that project; Furu tracks them per profile. |
 
-**App profiles** (`unknown`, `infinitime_placeholder`, …) are **not** the same as hardware or firmware names. They are runtime hints inside Furu (e.g. which commands the UI exposes). The **firmware capability matrix** in the catalog ties feature IDs to InfiniTime / Kongle / Wasp-os support using ✓ / — markers.
+**App profiles** (`unknown`, `infinitime`, …) are **not** the same as hardware or firmware names. They are runtime hints inside Furu (e.g. which commands the UI exposes). The **firmware capability matrix** in the catalog ties feature IDs to InfiniTime / Kongle / Wasp-os support using ✓ / — markers.
 
 ## Feature IDs
 
