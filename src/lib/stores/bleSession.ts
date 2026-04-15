@@ -463,6 +463,7 @@ export async function connectTo(address: string): Promise<void> {
         await bindRememberedDevice(fromScan);
       }
       await applySessionProfileAfterConnect(connectAddress, fromScan.name);
+      await syncNativeNotificationForwardingGates();
       pushLog(`connect requested: ${connectAddress}`);
     } finally {
       if (stopScanAfterConnect) {
