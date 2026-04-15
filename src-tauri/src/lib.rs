@@ -28,6 +28,7 @@ pub fn run() {
             ble::commands::ble_set_notification_forwarding_enabled,
             ble::commands::ble_set_active_device_notifications_enabled,
             ble::commands::ble_set_connection_state,
+            ble::commands::ble_set_blocked_notification_packages,
             ble::commands::ble_poc_send_current_time,
             ble::commands::ble_poc_send_notification,
             ble::commands::ble_read_battery_percentage,

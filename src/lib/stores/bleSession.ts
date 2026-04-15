@@ -13,6 +13,7 @@ import { derived, get, writable, type Readable } from "svelte/store";
 import type { ProfileInfo } from "$lib/bleContract";
 import { FeatureId, ProfileId } from "$lib/bleContract";
 import { appSettings } from "$lib/stores/appSettings";
+import { notificationFilters } from "$lib/stores/notificationFilters";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
 import {
   appendBatterySample,
@@ -213,10 +214,12 @@ async function syncNativeNotificationForwardingGates(): Promise<void> {
   const globalEnabled = get(appSettings).notificationForwardingEnabled;
   const addr = get(selectedAddress);
   const deviceEnabled = addr ? (getRememberedByAddress(addr)?.notificationsEnabled ?? false) : false;
+  const blockedPackages = get(notificationFilters).blockedPackages;
   try {
     await invoke("ble_set_connection_state", { connected: isConnected });
     await invoke("ble_set_notification_forwarding_enabled", { enabled: globalEnabled });
     await invoke("ble_set_active_device_notifications_enabled", { enabled: deviceEnabled });
+    await invoke("ble_set_blocked_notification_packages", { packages: blockedPackages });
   } catch (error) {
     pushLog(`notification gate sync error: ${String(error)}`);
   }
@@ -230,6 +233,7 @@ function wireNotificationForwardingGateSync(): void {
   selectedAddress.subscribe(run);
   rememberedDevices.subscribe(run);
   appSettings.subscribe(run);
+  notificationFilters.subscribe(run);
   run();
 }
 

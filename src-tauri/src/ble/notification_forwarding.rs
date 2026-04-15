@@ -92,6 +92,14 @@ fn should_forward_notifications() -> bool {
 }
 
 #[cfg(target_os = "android")]
+fn is_package_blocked(package_name: &str) -> bool {
+    let Ok(s) = session::global().lock() else {
+        return false;
+    };
+    s.blocked_notification_packages.iter().any(|p| p == package_name)
+}
+
+#[cfg(target_os = "android")]
 async fn wait_for_notification_wake<R: Runtime>(
     app: &AppHandle<R>,
     timeout_ms: i64,
@@ -187,6 +195,10 @@ pub fn spawn_background_forwarder<R: Runtime>(app: AppHandle<R>) {
 
             let mut sent_this_tick = 0usize;
             for n in pending.into_iter().filter(|n| n.posted_at_ms > last_sent) {
+                if is_package_blocked(&n.package_name) {
+                    LAST_FORWARDED_POSTED_AT_MS.store(n.posted_at_ms, Ordering::Relaxed);
+                    continue;
+                }
                 let title = if n.title.trim().is_empty() {
                     n.package_name.as_str()
                 } else {

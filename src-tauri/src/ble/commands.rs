@@ -73,6 +73,25 @@ pub fn ble_set_connection_state(connected: bool) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn ble_set_blocked_notification_packages(packages: Vec<String>) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut normalized: Vec<String> = Vec::new();
+    for raw in packages {
+        let package_name = raw.trim().to_string();
+        if package_name.is_empty() {
+            continue;
+        }
+        if seen.insert(package_name.clone()) {
+            normalized.push(package_name);
+        }
+    }
+    normalized.sort();
+    let mut s = session::global().lock().map_err(|e| e.to_string())?;
+    s.blocked_notification_packages = normalized;
+    Ok(())
+}
+
 /// Writes **local** time to the SIG Current Time characteristic (`0x2A2B` on `0x1805`).
 /// The peer must implement CTS and allow writes; many watches only accept this from a bonded companion.
 #[tauri::command]

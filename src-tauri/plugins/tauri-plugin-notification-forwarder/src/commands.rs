@@ -23,13 +23,6 @@ pub struct NotificationPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-struct NotificationDrainResponse {
-    notifications: Vec<NotificationPayload>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WaitForNotificationsResponse {
     pub version: i64,
     pub changed: bool,
@@ -99,11 +92,11 @@ pub fn drain_notifications<R: Runtime>(
     #[cfg(target_os = "android")]
     {
         if let Some(handle) = app.try_state::<NotificationForwarderHandle<R>>() {
-            let response: NotificationDrainResponse = handle
+            let raw: serde_json::Value = handle
                 .0
                 .run_mobile_plugin("drainNotifications", serde_json::Value::Null)
                 .map_err(|e| e.to_string())?;
-            return Ok(response.notifications);
+            return decode_notifications(raw);
         }
     }
     Ok(Vec::new())
@@ -116,14 +109,29 @@ pub fn list_recent_notifications<R: Runtime>(
     #[cfg(target_os = "android")]
     {
         if let Some(handle) = app.try_state::<NotificationForwarderHandle<R>>() {
-            let response: NotificationDrainResponse = handle
+            let raw: serde_json::Value = handle
                 .0
                 .run_mobile_plugin("listRecentNotifications", serde_json::Value::Null)
                 .map_err(|e| e.to_string())?;
-            return Ok(response.notifications);
+            return decode_notifications(raw);
         }
     }
     Ok(Vec::new())
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn decode_notifications(raw: serde_json::Value) -> Result<Vec<NotificationPayload>, String> {
+    let Some(notifications_value) = raw.get("notifications") else {
+        return Err(format!(
+            "missing notifications field in plugin response: {raw}"
+        ));
+    };
+    let notifications: Result<Vec<NotificationPayload>, _> = match notifications_value {
+        serde_json::Value::Array(_) => serde_json::from_value(notifications_value.clone()),
+        serde_json::Value::String(s) => serde_json::from_str::<Vec<NotificationPayload>>(s),
+        _ => serde_json::from_value(notifications_value.clone()),
+    };
+    notifications.map_err(|e| format!("failed to decode notifications: {e}; raw={raw}"))
 }
 
 #[tauri::command]

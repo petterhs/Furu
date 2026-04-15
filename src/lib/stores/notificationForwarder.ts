@@ -61,3 +61,11 @@ export async function drainNotifications(): Promise<ForwardedNotification[]> {
 export async function postTestNotification(title: string, message: string): Promise<void> {
   await invoke("plugin:notification-forwarder|post_test_notification", { title, message });
 }
+
+export async function listRecentNotifications(): Promise<ForwardedNotification[]> {
+  try {
+    return await invoke<ForwardedNotification[]>("plugin:notification-forwarder|list_recent_notifications");
+  } catch {
+    return [];
+  }
+}

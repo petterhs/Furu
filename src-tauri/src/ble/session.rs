@@ -8,6 +8,7 @@ pub struct Session {
     pub notification_forwarding_enabled: bool,
     pub active_device_notifications_enabled: bool,
     pub connection_active: bool,
+    pub blocked_notification_packages: Vec<String>,
 }
 
 impl Default for Session {
@@ -18,6 +19,7 @@ impl Default for Session {
             notification_forwarding_enabled: true,
             active_device_notifications_enabled: true,
             connection_active: false,
+            blocked_notification_packages: Vec::new(),
         }
     }
 }

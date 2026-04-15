@@ -8,6 +8,7 @@
   import { hydrateBatteryHistory } from "$lib/stores/batteryHistory";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
   import { hydrateAppSettings } from "$lib/stores/appSettings";
+  import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
 
   let { children }: { children: Snippet } = $props();
@@ -38,6 +39,7 @@
   onMount(() => {
     void initializeBleSession();
     void hydrateAppSettings();
+    void hydrateNotificationFilters();
     void requestPromptablePermissions();
     void hydrateRememberedDevices();
     void hydrateBatteryHistory();
