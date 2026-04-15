@@ -18,6 +18,12 @@ fun tauriPropOrEnv(propKey: String, envKey: String): String? {
         ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
 }
 
+fun isReleaseTaskRequested(): Boolean {
+    return gradle.startParameter.taskNames.any {
+        it.contains("Release", ignoreCase = true) || it.contains("Bundle", ignoreCase = true)
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.furu_app"
@@ -36,22 +42,34 @@ android {
             val keyAliasValue = tauriPropOrEnv("tauri.android.signing.keyAlias", "ANDROID_KEY_ALIAS")
             val keyPasswordValue = tauriPropOrEnv("tauri.android.signing.keyPassword", "ANDROID_KEY_PASSWORD")
 
-            if (storeFilePath == null || storePasswordValue == null || keyAliasValue == null || keyPasswordValue == null) {
+            if (
+                isReleaseTaskRequested() &&
+                    (storeFilePath == null ||
+                        storePasswordValue == null ||
+                        keyAliasValue == null ||
+                        keyPasswordValue == null)
+            ) {
                 throw GradleException(
                     "Missing Android release signing config. Set tauri.android.signing.* in app/tauri.properties " +
                         "or env vars ANDROID_KEYSTORE_PATH, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.",
                 )
             }
 
-            storeFile = file(storeFilePath)
-            storePassword = storePasswordValue
-            keyAlias = keyAliasValue
-            keyPassword = keyPasswordValue
+            if (storeFilePath != null && storePasswordValue != null && keyAliasValue != null && keyPasswordValue != null) {
+                storeFile = file(storeFilePath)
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
         }
     }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Furu Dev")
+            resValue("string", "main_activity_title", "Furu Dev")
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false

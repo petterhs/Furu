@@ -1,13 +1,15 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 
-// @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
-
 // https://vite.dev/config/
-export default defineConfig(async () => ({
-  plugins: [tailwindcss(), sveltekit()],
+export default defineConfig(async ({ mode }) => {
+  const env = loadEnv(mode, ".", "");
+  const remoteHost = env.TAURI_DEV_HOST || "";
+  const bindHost = remoteHost ? "0.0.0.0" : false;
+
+  return {
+    plugins: [tailwindcss(), sveltekit()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -17,11 +19,11 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
-    hmr: host
+    host: bindHost,
+    hmr: remoteHost
       ? {
           protocol: "ws",
-          host,
+          host: remoteHost,
           port: 1421,
         }
       : undefined,
@@ -34,4 +36,5 @@ export default defineConfig(async () => ({
       ],
     },
   },
-}));
+};
+});

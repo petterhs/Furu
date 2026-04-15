@@ -57,6 +57,21 @@ Notes:
 - `.apk` is for direct install (sideload/testing).
 - `.aab` is for Play Console upload.
 
+## Dev vs release installs on the same device
+
+This project uses Android `debug` suffixing in Gradle so both can coexist:
+
+- Debug/dev install ID: `com.furu_app.dev` (app label `Furu Dev`)
+- Release install ID: `com.furu_app` (app label `Furu`)
+
+Use:
+
+```bash
+pnpm tauri:dev:android
+```
+
+for dev/debug installs, and release build commands for signed RC/release artifacts.
+
 ## 4) GitHub Actions secrets for CI signing
 
 Set these repository secrets:
