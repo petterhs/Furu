@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import {
     beginScan,
+    connected,
     connectTo,
+    selectedAddress,
     requestBlePermissions,
     scanning,
     scanResults,
@@ -23,6 +26,13 @@
       (device) => resolveProfileIdFromDeviceName(device.name, rules) !== ProfileId.unknown,
     );
   });
+
+  async function handleConnect(address: string): Promise<void> {
+    await connectTo(address);
+    if ($connected && $selectedAddress && $selectedAddress.toLowerCase() === address.toLowerCase()) {
+      await goto("/home");
+    }
+  }
 
   onMount(() => {
     void (async () => {
@@ -82,7 +92,11 @@
               <div class="mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">RSSI {device.rssi}</div>
             </div>
             <div class="grid gap-2 sm:w-44 sm:justify-items-stretch">
-              <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => connectTo(device.address)}>
+              <button
+                class="btn btn-sm preset-filled-primary-500"
+                type="button"
+                onclick={() => void handleConnect(device.address)}
+              >
                 Connect
               </button>
             </div>
