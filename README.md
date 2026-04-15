@@ -13,23 +13,6 @@ Firmwares we intend to support (links for context):
 - [Kongle](https://github.com/petterhs/Kongle) — Rust firmware for the PineTime
 - [Wasp-os](https://github.com/wasp-os/wasp-os)
 
-## Android Release Candidates
-
-This repository includes a GitHub Actions workflow for signed Android release candidates:
-
-- Workflow: `.github/workflows/android-release-candidate.yml`
-- Triggers: manual dispatch and `v*` tags
-- Outputs: signed APK + AAB artifacts
-
-Required GitHub repository secrets:
-
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-
-See [docs/android-signing.md](docs/android-signing.md) for full setup, local signing, and first-run validation steps.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
