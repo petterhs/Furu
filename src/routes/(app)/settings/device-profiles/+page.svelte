@@ -157,7 +157,6 @@
       <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => void addCustomProfile()}>
         Add custom profile
       </button>
-      <a class="btn btn-sm preset-tonal-surface no-underline" href="/settings">Back to Settings</a>
     </div>
   </div>
 

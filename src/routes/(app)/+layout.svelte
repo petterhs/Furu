@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { Bug, Home, ScrollText, Settings } from "@lucide/svelte";
+  import { ArrowLeft, Bug, Home, ScrollText, Settings } from "@lucide/svelte";
   import { Navigation } from "@skeletonlabs/skeleton-svelte";
   import { initializeBleSession } from "$lib/stores/bleSession";
   import { hydrateBatteryHistory } from "$lib/stores/batteryHistory";
@@ -11,6 +11,15 @@
   let { children }: { children: Snippet } = $props();
 
   const pathname = $derived(page.url.pathname);
+  const showBackButton = $derived(pathname !== "/home");
+
+  function goBack(): void {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.assign("/home");
+  }
 
   const links: { label: string; href: string; icon: Component; match?: (path: string) => boolean }[] = [
     { label: "Home", href: "/home", icon: Home },
@@ -35,7 +44,23 @@
   <header
     class="sticky top-0 z-10 shrink-0 border-b border-surface-200-800 bg-surface-50-950 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] backdrop-blur-sm"
   >
-    <h1 class="m-0 text-base font-semibold">Furu</h1>
+    <div class="flex min-h-8 items-center">
+      {#if showBackButton}
+        <button
+          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--color-primary-600)] bg-[color:var(--color-primary-500)] text-white"
+          type="button"
+          onclick={goBack}
+          aria-label="Go back"
+        >
+          <ArrowLeft class="size-4 text-white" />
+        </button>
+      {:else}
+        <div class="flex items-center gap-2">
+          <img src="/furu-logo.png" alt="Furu icon" class="h-10 w-10 rounded-md" />
+          <h1 class="m-0 text-base font-semibold">Furu</h1>
+        </div>
+      {/if}
+    </div>
   </header>
 
   <main class="min-h-0 flex-1 overflow-y-auto px-4 py-4">

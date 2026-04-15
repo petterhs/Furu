@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import Battery from "@lucide/svelte/icons/battery";
+  import Settings from "@lucide/svelte/icons/settings";
   import { LineChart } from "layerchart";
   import { page } from "$app/state";
   import { batteryHistoryByDevice, batteryHistoryHydrated } from "$lib/stores/batteryHistory";
@@ -12,7 +14,7 @@
     disconnectDevice,
     selectedAddress,
   } from "$lib/stores/bleSession";
-  import { rememberedDevices } from "$lib/stores/devices";
+  import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId ?? "");
@@ -45,50 +47,79 @@
   const chartPoints = $derived(
     filteredSamples.map((sample) => ({ time: new Date(sample.at), percent: sample.percent })),
   );
+
+  async function onForget(): Promise<void> {
+    if (!known) return;
+    const confirmed = window.confirm(
+      `Forget ${known.name}? This removes the device and its local data.`,
+    );
+    if (!confirmed) return;
+    if (isCurrentDevice) {
+      await disconnectDevice();
+    }
+    await forgetRememberedDevice(known.id);
+    await goto("/home");
+  }
 </script>
 
 <section class="grid gap-4">
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-    <h2 class="m-0 mb-3 text-base font-semibold">Device</h2>
+    <div class="mb-3 flex items-center justify-between gap-2">
+      <h2 class="m-0 text-base font-semibold">Device</h2>
+      <a
+        class="btn btn-icon btn-sm border border-[color:var(--color-primary-600)] bg-[color:var(--color-primary-500)] text-white no-underline"
+        href={`/device/${routeDeviceKey}/settings`}
+        aria-label="Open device settings"
+      >
+        <Settings class="size-4 !text-white !stroke-white" />
+        <Settings class="size-4" />
+          <Battery class="size-4" />
+      </a>
+        <Settings class="size-4" />
+    </div>
     {#if known}
       <p class="m-0"><strong>{known.name}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
-      <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-        Last seen: {new Date(known.lastSeenAt).toLocaleString()}
-      </p>
       {#if isCurrentDevice && $batteryPercent !== null}
         <p class="m-0 mt-2 flex items-center gap-1 text-sm">
           <Battery class="size-4" />
           {$batteryPercent}%
         </p>
       {/if}
+      <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
+        Last seen: {new Date(known.lastSeenAt).toLocaleString()}
+      </p>
     {:else}
       <p class="m-0 font-mono text-sm">{resolvedAddress}</p>
     {/if}
   </article>
 
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-    <h2 class="m-0 mb-3 text-base font-semibold">Quick Actions</h2>
+    <h2 class="m-0 mb-3 text-base font-semibold">Actions</h2>
     <div class="flex flex-wrap gap-2">
-      <button
-        class="btn btn-sm preset-filled-primary-500"
-        type="button"
-        onclick={() => void connectTo(resolvedAddress)}
-        disabled={isConnectingDevice}
-      >
-        {isConnectingDevice ? "Connecting…" : "Connect"}
-      </button>
-      <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice} disabled={!$connected}>
-        Disconnect
+      {#if isCurrentDevice}
+        <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice}>
+          Disconnect
+        </button>
+        <button class="btn btn-sm preset-tonal-surface" type="button" disabled>
+          OTA Update / DFU
+        </button>
+      {:else}
+        <button
+          class="btn btn-sm preset-filled-primary-500"
+          type="button"
+          onclick={() => void connectTo(resolvedAddress)}
+          disabled={isConnectingDevice}
+        >
+          {isConnectingDevice ? "Connecting…" : "Connect"}
+        </button>
+      {/if}
+      <button class="btn btn-sm preset-tonal-error" type="button" onclick={() => void onForget()}>
+        Forget
       </button>
     </div>
     {#if isConnectErrorForDevice}
       <p class="m-0 mt-3 text-sm text-[color:var(--color-error-700-300)]">{$connectError?.message}</p>
-    {/if}
-    {#if isCurrentDevice}
-      <p class="m-0 mt-3 text-sm">Connected.</p>
-    {:else}
-      <p class="m-0 mt-3 text-sm text-[color:var(--color-surface-700-300)]">Not connected.</p>
     {/if}
   </article>
 
@@ -170,7 +201,4 @@
     {/if}
   </article>
 
-  <div class="flex flex-wrap gap-2">
-    <a class="btn btn-sm preset-tonal-surface no-underline" href={`/device/${routeDeviceKey}/settings`}>Settings</a>
-  </div>
 </section>

@@ -178,7 +178,5 @@
     <button class="btn btn-sm preset-filled-error-500" type="button" onclick={onForget} disabled={!remembered}>
       Forget / Unbind Device
     </button>
-    <a class="btn btn-sm preset-tonal-surface no-underline" href="/settings/device-profiles">Device Profiles</a>
-    <a class="btn btn-sm preset-tonal-surface no-underline sm:ml-auto" href="/home">Back to Home</a>
   </div>
 </section>
