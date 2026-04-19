@@ -29,7 +29,7 @@ In the Furu app, built-in rows above correspond to **default** device profiles; 
 | `ble.battery` | Standard (SIG) | `0x180F` (Battery Service), `0x2A19` (Battery Level) | Battery percentage (0-100) | WIP (connected-only read + periodic polling from UI) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | HR notifications | not started |
 | `ble.anss` | Standard (SIG) | `0x1811` / **New Alert** `0x2A46` | InfiniTime: `title\0message` after 3-byte ANS header (see `ble::ans`) | done (manual send + Android system-notification forwarding with app/device gates and permissions page) |
-| `ble.dis_steps` | Standard (SIG) | Depends on firmware exposure | Step count; exact characteristic varies | not started |
+| `ble.dis_steps` | Vendor path (InfiniTime) | InfiniTime Motion Service `00030000-78fc-48fe-8e23-433b3a1942d0`, step count `00030001-78fc-48fe-8e23-433b3a1942d0` ([MotionService.md](https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/MotionService.md)) | `uint32` little-endian; read + notify in firmware | done |
 | `infinitime.dfu` | Vendor (InfiniTime) | Nordic DFU / InfiniTime OTA UUIDs in source | OTA firmware update state machine | not started |
 | `infinitime.companion_uart` | Vendor (InfiniTime) | Nordic UART-style companion service (confirm in source) | Binary framing per InfiniTime | not started |
 | `kongle.*` | Firmware-specific (Kongle) | TBD | TBD until Kongle publishes GATT documentation | not started |
@@ -66,4 +66,4 @@ InfiniTime column uses ✓ where the capability is in scope for a typical Infini
 ## Notes
 
 - **InfiniTime** companion and DFU UUIDs change over time; treat the InfiniTime GitHub tree as authoritative and update this document when you pin versions.
-- **`ble.dis_steps`**: Many watches expose activity via custom services; narrow this row when you pick a concrete endpoint per firmware.
+- **`ble.dis_steps`**: Furu reads InfiniTime’s Motion Service step characteristic (since InfiniTime 1.7). Other firmwares would need separate GATT targets or profile-specific commands later.

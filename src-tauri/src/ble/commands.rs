@@ -136,6 +136,26 @@ pub async fn ble_poc_send_notification(
         .map_err(|e| e.to_string())
 }
 
+/// Reads step count from InfiniTime Motion Service (step characteristic `00030001-…` on `00030000-…`).
+/// Returns cumulative steps as `uint32` little-endian per InfiniTime `doc/MotionService.md`.
+#[tauri::command]
+pub async fn ble_read_step_count() -> Result<u32, String> {
+    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
+    let bytes = handler
+        .recv_data(
+            registry::INFINITIME_MOTION_STEP_COUNT_CHAR_UUID,
+            Some(registry::INFINITIME_MOTION_SERVICE_UUID),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if bytes.len() < 4 {
+        return Err(format!("step count read: expected 4 bytes (uint32 LE), got {}", bytes.len()));
+    }
+    let arr: [u8; 4] = bytes[..4].try_into().expect("length checked");
+    Ok(u32::from_le_bytes(arr))
+}
+
 /// Reads the SIG Battery Level (`0x2A19` on `0x180F`) and returns percentage (0-100).
 #[tauri::command]
 pub async fn ble_read_battery_percentage() -> Result<u8, String> {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import Battery from "@lucide/svelte/icons/battery";
+  import Footprints from "@lucide/svelte/icons/footprints";
   import Settings from "@lucide/svelte/icons/settings";
   import { LineChart } from "layerchart";
   import { page } from "$app/state";
@@ -18,6 +19,7 @@
     connectingAddress,
     disconnectDevice,
     selectedAddress,
+    stepCount,
   } from "$lib/stores/bleSession";
   import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
@@ -187,11 +189,21 @@
     {#if known}
       <p class="m-0"><strong>{known.name}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
-      {#if isCurrentDevice && $batteryPercent !== null}
-        <p class="m-0 mt-2 flex items-center gap-1 text-sm">
-          <Battery class="size-4" />
-          {$batteryPercent}%
-        </p>
+      {#if isCurrentDevice && ($batteryPercent !== null || $stepCount !== null)}
+        <div class="mt-2 flex gap-1 text-sm">
+          {#if $batteryPercent !== null}
+            <p class="m-0 flex items-center gap-1">
+              <Battery class="size-4 shrink-0" />
+              {$batteryPercent}%
+            </p>
+          {/if}
+          {#if $stepCount !== null}
+            <p class="m-0 flex items-center gap-1">
+              <Footprints class="size-4 shrink-0" />
+              {$stepCount.toLocaleString()} steps
+            </p>
+          {/if}
+        </div>
       {/if}
       <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
         Last seen: {new Date(known.lastSeenAt).toLocaleString()}

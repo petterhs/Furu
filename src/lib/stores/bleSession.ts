@@ -61,6 +61,9 @@ export const connectError = writable<{ address: string; message: string } | null
 export const batteryPercent = writable<number | null>(null);
 export const batteryUpdatedAt = writable<number | null>(null);
 export const batteryError = writable<string | null>(null);
+export const stepCount = writable<number | null>(null);
+export const stepCountUpdatedAt = writable<number | null>(null);
+export const stepCountError = writable<string | null>(null);
 
 let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
@@ -70,6 +73,11 @@ let batteryPollIntervalId: ReturnType<typeof setInterval> | null = null;
 let batteryReadInFlight = false;
 const BATTERY_POLL_INTERVAL_MS = 60_000;
 let lastBatteryGateLog: string | null = null;
+
+let stepPollIntervalId: ReturnType<typeof setInterval> | null = null;
+let stepReadInFlight = false;
+const STEP_POLL_INTERVAL_MS = 60_000;
+let lastStepGateLog: string | null = null;
 
 let userRequestedDisconnect = false;
 /** Cleared when the native connection channel reports `connected`, or when a connect attempt fails. */
@@ -277,6 +285,12 @@ function clearBatteryState(): void {
   batteryError.set(null);
 }
 
+function clearStepState(): void {
+  stepCount.set(null);
+  stepCountUpdatedAt.set(null);
+  stepCountError.set(null);
+}
+
 function logBatteryGate(message: string): void {
   if (lastBatteryGateLog === message) return;
   lastBatteryGateLog = message;
@@ -352,6 +366,78 @@ function wireBatteryPollingReconciliation(): void {
 
   const run = () => {
     reconcileBatteryPolling();
+  };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  activeFeatureIds.subscribe(run);
+  run();
+}
+
+function logStepGate(message: string): void {
+  if (lastStepGateLog === message) return;
+  lastStepGateLog = message;
+  pushLog(message);
+}
+
+async function refreshStepCount(): Promise<void> {
+  if (stepReadInFlight) {
+    logStepGate("step polling: read already in flight");
+    return;
+  }
+  if (!get(connected)) {
+    logStepGate("step polling: skipped (not connected)");
+    return;
+  }
+  if (!get(selectedAddress)) {
+    logStepGate("step polling: skipped (no selected address)");
+    return;
+  }
+  if (!get(activeFeatureIds).includes(FeatureId.bleDisSteps)) {
+    logStepGate("step polling: skipped (active profile lacks ble.dis_steps)");
+    return;
+  }
+  lastStepGateLog = null;
+  stepReadInFlight = true;
+  try {
+    pushLog("step count read: requesting Motion Service");
+    const steps = await invoke<number>("ble_read_step_count");
+    stepCount.set(steps);
+    stepCountUpdatedAt.set(Date.now());
+    stepCountError.set(null);
+    pushLog(`step count read: ${steps}`);
+  } catch (error) {
+    stepCountError.set(`Step count read failed: ${String(error)}`);
+    pushLog(`step count read error: ${String(error)}`);
+  } finally {
+    stepReadInFlight = false;
+  }
+}
+
+function reconcileStepPolling(): void {
+  if (stepPollIntervalId !== null) {
+    clearInterval(stepPollIntervalId);
+    stepPollIntervalId = null;
+  }
+  if (!get(connected) || !get(selectedAddress)) {
+    logStepGate("step polling: disabled (missing connection context)");
+    clearStepState();
+    return;
+  }
+  if (!get(activeFeatureIds).includes(FeatureId.bleDisSteps)) {
+    logStepGate("step polling: disabled (feature gate ble.dis_steps missing)");
+    clearStepState();
+    return;
+  }
+  logStepGate("step polling: enabled");
+  void refreshStepCount();
+  stepPollIntervalId = setInterval(() => {
+    void refreshStepCount();
+  }, STEP_POLL_INTERVAL_MS);
+}
+
+function wireStepPollingReconciliation(): void {
+  const run = () => {
+    reconcileStepPolling();
   };
   connected.subscribe(run);
   selectedAddress.subscribe(run);
@@ -471,6 +557,7 @@ export async function initializeBleSession(): Promise<void> {
 
   wireCtsSyncReconciliation();
   wireBatteryPollingReconciliation();
+  wireStepPollingReconciliation();
   wireNotificationForwardingGateSync();
 }
 
