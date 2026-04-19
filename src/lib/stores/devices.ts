@@ -11,6 +11,30 @@ export const CTS_SYNC_MIN_MINUTES = 5;
 export const CTS_SYNC_MAX_MINUTES = 1440;
 export const CTS_SYNC_DEFAULT_MINUTES = 60;
 
+export const AUTO_RECONNECT_INTERVAL_MIN_MINUTES = 1;
+export const AUTO_RECONNECT_INTERVAL_MAX_MINUTES = 1440;
+export const AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES = 5;
+
+export function clampAutoReconnectIntervalMinutes(n: number | undefined): number {
+  const v =
+    n === undefined || Number.isNaN(n) ? AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES : Math.round(n);
+  return Math.min(
+    AUTO_RECONNECT_INTERVAL_MAX_MINUTES,
+    Math.max(AUTO_RECONNECT_INTERVAL_MIN_MINUTES, v),
+  );
+}
+
+/** 0 = unlimited failed attempts (keep retrying). Above 0 = cap after that many consecutive failures. */
+export const AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT = 0;
+export const AUTO_RECONNECT_MAX_ATTEMPTS_CAP = 10_000;
+
+export function clampAutoReconnectMaxAttempts(n: number | undefined): number {
+  if (n === undefined || Number.isNaN(n)) return AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT;
+  const v = Math.round(n);
+  if (v <= 0) return 0;
+  return Math.min(AUTO_RECONNECT_MAX_ATTEMPTS_CAP, Math.max(1, v));
+}
+
 export function clampCtsSyncIntervalMinutes(n: number | undefined): number {
   const v = n === undefined || Number.isNaN(n) ? CTS_SYNC_DEFAULT_MINUTES : Math.round(n);
   return Math.min(CTS_SYNC_MAX_MINUTES, Math.max(CTS_SYNC_MIN_MINUTES, v));
@@ -26,6 +50,8 @@ function migrateRememberedDeviceShape(device: RememberedDevice): RememberedDevic
     heartRateLoggingEnabled: device.heartRateLoggingEnabled ?? false,
     autoReconnect: device.autoReconnect ?? true,
     replayMissedNotificationsOnReconnect: device.replayMissedNotificationsOnReconnect ?? true,
+    autoReconnectIntervalMinutes: clampAutoReconnectIntervalMinutes(device.autoReconnectIntervalMinutes),
+    autoReconnectMaxAttempts: clampAutoReconnectMaxAttempts(device.autoReconnectMaxAttempts),
   };
 }
 
@@ -44,12 +70,24 @@ export async function hydrateRememberedDevices(): Promise<void> {
       raw.currentTimeSyncEnabled === undefined || raw.currentTimeSyncIntervalMinutes === undefined;
     const needsHr = raw.heartRateLoggingEnabled === undefined;
     const needsReconnect = raw.autoReconnect === undefined;
+    const needsReconnectInterval = raw.autoReconnectIntervalMinutes === undefined;
+    const needsReconnectMaxAttempts = raw.autoReconnectMaxAttempts === undefined;
     const needsReplay = raw.replayMissedNotificationsOnReconnect === undefined;
     const needsClamp =
       raw.currentTimeSyncIntervalMinutes !== undefined &&
       clampCtsSyncIntervalMinutes(raw.currentTimeSyncIntervalMinutes) !==
         raw.currentTimeSyncIntervalMinutes;
-    if (needsAddr || needsCts || needsClamp || needsHr || needsReconnect || needsReplay) changed = true;
+    if (
+      needsAddr ||
+      needsCts ||
+      needsClamp ||
+      needsHr ||
+      needsReconnect ||
+      needsReconnectInterval ||
+      needsReconnectMaxAttempts ||
+      needsReplay
+    )
+      changed = true;
     const base: RememberedDevice = { ...device, address, id } as RememberedDevice;
     return migrateRememberedDeviceShape(base);
   });
@@ -84,6 +122,8 @@ export async function bindRememberedDevice(device: BleDevice): Promise<void> {
     heartRateLoggingEnabled: false,
     autoReconnect: true,
     replayMissedNotificationsOnReconnect: true,
+    autoReconnectIntervalMinutes: AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
+    autoReconnectMaxAttempts: AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT,
   };
   const withoutCurrent = current.filter((d) => !bleAddressesEqual(d.address, address));
   const next = [nextDevice, ...withoutCurrent];
@@ -117,6 +157,14 @@ export async function updateRememberedDevice(
       merged.currentTimeSyncIntervalMinutes = clampCtsSyncIntervalMinutes(
         patch.currentTimeSyncIntervalMinutes,
       );
+    }
+    if (patch.autoReconnectIntervalMinutes !== undefined) {
+      merged.autoReconnectIntervalMinutes = clampAutoReconnectIntervalMinutes(
+        patch.autoReconnectIntervalMinutes,
+      );
+    }
+    if (patch.autoReconnectMaxAttempts !== undefined) {
+      merged.autoReconnectMaxAttempts = clampAutoReconnectMaxAttempts(patch.autoReconnectMaxAttempts);
     }
     return merged;
   });

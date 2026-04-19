@@ -6,9 +6,16 @@
   import { profiles } from "$lib/stores/bleSession";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
   import {
+    AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
+    AUTO_RECONNECT_INTERVAL_MAX_MINUTES,
+    AUTO_RECONNECT_INTERVAL_MIN_MINUTES,
+    AUTO_RECONNECT_MAX_ATTEMPTS_CAP,
+    AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT,
     CTS_SYNC_DEFAULT_MINUTES,
     CTS_SYNC_MAX_MINUTES,
     CTS_SYNC_MIN_MINUTES,
+    clampAutoReconnectIntervalMinutes,
+    clampAutoReconnectMaxAttempts,
     clampCtsSyncIntervalMinutes,
     forgetRememberedDevice,
     rememberedDevices,
@@ -29,6 +36,16 @@
   const heartRateLoggingEnabled = $derived(remembered?.heartRateLoggingEnabled ?? false);
   const autoReconnect = $derived(remembered?.autoReconnect ?? true);
   const replayMissed = $derived(remembered?.replayMissedNotificationsOnReconnect ?? true);
+  const reconnectIntervalMinutes = $derived(
+    clampAutoReconnectIntervalMinutes(
+      remembered?.autoReconnectIntervalMinutes ?? AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
+    ),
+  );
+  const reconnectMaxAttempts = $derived(
+    clampAutoReconnectMaxAttempts(
+      remembered?.autoReconnectMaxAttempts ?? AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT,
+    ),
+  );
   const ctsEnabled = $derived(remembered?.currentTimeSyncEnabled ?? true);
   const ctsInterval = $derived(
     clampCtsSyncIntervalMinutes(remembered?.currentTimeSyncIntervalMinutes ?? CTS_SYNC_DEFAULT_MINUTES),
@@ -114,7 +131,49 @@
         </Switch.Control>
       </Switch>
       <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
-        When the link drops without using Disconnect, the app retries for a few minutes (see Logs).
+        When the link drops without using Disconnect, the app retries in the background using a direct connect (no BLE
+        scan) to save phone battery. See Logs for attempts.
+      </p>
+      <label class="label mt-4">
+        <span class="label-text">Minutes between reconnect attempts</span>
+        <input
+          class="input"
+          type="number"
+          min={AUTO_RECONNECT_INTERVAL_MIN_MINUTES}
+          max={AUTO_RECONNECT_INTERVAL_MAX_MINUTES}
+          step="1"
+          value={reconnectIntervalMinutes}
+          onchange={(e) => {
+            if (!remembered) return;
+            const v = Number((e.currentTarget as HTMLInputElement).value);
+            void updateRememberedDevice(remembered.id, { autoReconnectIntervalMinutes: v });
+          }}
+        />
+      </label>
+      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
+        Clamped between {AUTO_RECONNECT_INTERVAL_MIN_MINUTES} and {AUTO_RECONNECT_INTERVAL_MAX_MINUTES} minutes (default
+        {AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES}).
+      </p>
+
+      <label class="label mt-4">
+        <span class="label-text">Max failed reconnect attempts (per disconnect)</span>
+        <input
+          class="input"
+          type="number"
+          min="0"
+          max={AUTO_RECONNECT_MAX_ATTEMPTS_CAP}
+          step="1"
+          value={reconnectMaxAttempts}
+          onchange={(e) => {
+            if (!remembered) return;
+            const v = Number((e.currentTarget as HTMLInputElement).value);
+            void updateRememberedDevice(remembered.id, { autoReconnectMaxAttempts: v });
+          }}
+        />
+      </label>
+      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
+        <strong>0</strong> = no limit (default): keep retrying until the link works or you disconnect. Set to a positive
+        number to stop after that many failed tries in a row (max {AUTO_RECONNECT_MAX_ATTEMPTS_CAP}).
       </p>
 
       <Switch

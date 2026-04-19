@@ -15,6 +15,13 @@ export type RememberedDevice = {
   heartRateLoggingEnabled: boolean;
   /** When true, try to restore the BLE link after an unexpected disconnect. */
   autoReconnect: boolean;
+  /** Minutes between automatic reconnect attempts (clamped). Default 5. */
+  autoReconnectIntervalMinutes: number;
+  /**
+   * Stop auto-reconnect after this many failed attempts in a row. **0** = no limit (default). Otherwise clamped to a
+   * sensible upper bound.
+   */
+  autoReconnectMaxAttempts: number;
   /**
    * When true, notifications that arrived on the phone while disconnected may be forwarded after an
    * automatic reconnect. Manual connects still absorb stale backlog so pairing does not blast the watch.

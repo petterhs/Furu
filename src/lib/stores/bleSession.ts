@@ -20,6 +20,8 @@ import {
 } from "$lib/stores/batteryHistory";
 import {
   bindRememberedDevice,
+  clampAutoReconnectIntervalMinutes,
+  clampAutoReconnectMaxAttempts,
   clampCtsSyncIntervalMinutes,
   getRememberedByAddress,
   rememberedDevices,
@@ -37,6 +39,11 @@ import { bleAddressesEqual } from "$lib/utils/deviceId";
 export type ConnectOptions = {
   /** When true, this connection attempt is from the auto-reconnect loop (not the user tapping Connect). */
   isAutoReconnect?: boolean;
+  /**
+   * If true, skip scanning and connect by address only (low battery cost; may fail if the OS has no cached
+   * peripheral). Auto-reconnect uses this path.
+   */
+  skipScan?: boolean;
 };
 
 export const scanResults = writable<BleDevice[]>([]);
@@ -69,8 +76,11 @@ let userRequestedDisconnect = false;
 let pendingConnectSource: "user" | "auto" | null = null;
 let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let autoReconnectAttempts = 0;
-const AUTO_RECONNECT_DELAY_MS = 5_000;
-const AUTO_RECONNECT_MAX_ATTEMPTS = 12;
+
+function autoReconnectDelayMsForAddress(address: string): number {
+  const dev = getRememberedByAddress(address);
+  return clampAutoReconnectIntervalMinutes(dev?.autoReconnectIntervalMinutes) * 60_000;
+}
 
 function cancelAutoReconnectCycle(): void {
   if (autoReconnectTimer !== null) {
@@ -93,10 +103,11 @@ function scheduleAutoReconnect(address: string): void {
     autoReconnectTimer = null;
   }
   autoReconnectAttempts = 0;
-  pushLog(`BLE: auto-reconnect scheduled in ${AUTO_RECONNECT_DELAY_MS / 1000}s`);
+  const delayMs = autoReconnectDelayMsForAddress(trimmed);
+  pushLog(`BLE: auto-reconnect scheduled in ${Math.round(delayMs / 60_000)} min`);
   autoReconnectTimer = setTimeout(() => {
     void runAutoReconnectAttempt(trimmed);
-  }, AUTO_RECONNECT_DELAY_MS);
+  }, delayMs);
 }
 
 async function runAutoReconnectAttempt(address: string): Promise<void> {
@@ -116,23 +127,27 @@ async function runAutoReconnectAttempt(address: string): Promise<void> {
     autoReconnectAttempts = 0;
     return;
   }
+  const maxFailed = clampAutoReconnectMaxAttempts(dev.autoReconnectMaxAttempts);
   autoReconnectAttempts += 1;
-  if (autoReconnectAttempts > AUTO_RECONNECT_MAX_ATTEMPTS) {
-    pushLog(`BLE: auto-reconnect stopped after ${AUTO_RECONNECT_MAX_ATTEMPTS} failed attempts`);
+  if (maxFailed > 0 && autoReconnectAttempts > maxFailed) {
+    pushLog(`BLE: auto-reconnect stopped after ${maxFailed} failed attempts (limit reached)`);
     autoReconnectAttempts = 0;
     return;
   }
-  pushLog(`BLE: auto-reconnect attempt ${autoReconnectAttempts}/${AUTO_RECONNECT_MAX_ATTEMPTS}`);
+  const attemptLabel =
+    maxFailed > 0 ? `${autoReconnectAttempts}/${maxFailed}` : `${autoReconnectAttempts} (no limit)`;
+  pushLog(`BLE: auto-reconnect attempt ${attemptLabel} (direct, no scan)`);
   try {
-    await connectTo(address, { isAutoReconnect: true });
+    await connectTo(address, { isAutoReconnect: true, skipScan: true });
   } catch (error) {
     pushLog(`BLE: auto-reconnect error: ${String(error)}`);
   }
   if (!get(connected)) {
-    pushLog(`BLE: auto-reconnect retry in ${AUTO_RECONNECT_DELAY_MS / 1000}s`);
+    const retryMs = autoReconnectDelayMsForAddress(address);
+    pushLog(`BLE: auto-reconnect retry in ${Math.round(retryMs / 60_000)} min`);
     autoReconnectTimer = setTimeout(() => {
       void runAutoReconnectAttempt(address);
-    }, AUTO_RECONNECT_DELAY_MS);
+    }, retryMs);
   } else {
     autoReconnectAttempts = 0;
     pushLog("BLE: auto-reconnect succeeded");
@@ -170,6 +185,27 @@ async function maybeAbsorbNotificationBacklog(
   } catch (error) {
     pushLog(`notifications: backlog absorb failed: ${String(error)}`);
   }
+}
+
+async function finalizeConnectSession(
+  connectAddress: string,
+  advertisementName: string | undefined,
+  isAutoReconnect: boolean,
+): Promise<void> {
+  selectedAddress.set(connectAddress);
+  connectError.set(null);
+  if (getRememberedByAddress(connectAddress)) {
+    await touchRememberedDevice(connectAddress, advertisementName);
+  } else {
+    await bindRememberedDevice({
+      address: connectAddress,
+      name: advertisementName || "Unknown device",
+    } as BleDevice);
+  }
+  await applySessionProfileAfterConnect(connectAddress, advertisementName);
+  await syncNativeNotificationForwardingGates();
+  await maybeAbsorbNotificationBacklog(connectAddress, isAutoReconnect);
+  pushLog(`connect: session ready for ${connectAddress}`);
 }
 
 async function applySessionProfileAfterConnect(
@@ -563,6 +599,7 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
   const requested = address.trim();
   if (!requested) return;
   const isAutoReconnect = options?.isAutoReconnect ?? false;
+  const skipScan = options?.skipScan ?? false;
   if (get(connectingAddress)) {
     pushLog(`connect: already connecting to ${get(connectingAddress)}`);
     return;
@@ -588,36 +625,35 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
     } catch {
       /* ignore: no scan in progress */
     }
-    scanResults.set([]);
-    pushLog(`connect: scanning for ${requested}…`);
-    const fromScan = await scanUntilAddressFound(requested, CONNECT_SCAN_TIMEOUT_MS);
-    if (!fromScan) {
-      connectError.set({ address: requested, message: "Could not find the device while scanning." });
-      pushLog(`connect: device not found while scanning: ${requested}`);
-      return;
-    }
-    stopScanAfterConnect = true;
 
-    const connectAddress = fromScan.address;
-    try {
-      await connectWithTimeout(connectAddress, CONNECT_ATTEMPT_TIMEOUT_MS);
-      selectedAddress.set(connectAddress);
-      connectError.set(null);
-      if (getRememberedByAddress(connectAddress)) {
-        await touchRememberedDevice(connectAddress, fromScan.name);
-      } else {
-        await bindRememberedDevice(fromScan);
+    if (skipScan) {
+      pushLog(`connect: direct (no scan) to ${requested}…`);
+      const remembered = getRememberedByAddress(requested);
+      const advName = remembered?.name;
+      await connectWithTimeout(requested, CONNECT_ATTEMPT_TIMEOUT_MS);
+      await finalizeConnectSession(requested, advName, isAutoReconnect);
+    } else {
+      scanResults.set([]);
+      pushLog(`connect: scanning for ${requested}…`);
+      const fromScan = await scanUntilAddressFound(requested, CONNECT_SCAN_TIMEOUT_MS);
+      if (!fromScan) {
+        connectError.set({ address: requested, message: "Could not find the device while scanning." });
+        pushLog(`connect: device not found while scanning: ${requested}`);
+        return;
       }
-      await applySessionProfileAfterConnect(connectAddress, fromScan.name);
-      await syncNativeNotificationForwardingGates();
-      await maybeAbsorbNotificationBacklog(connectAddress, isAutoReconnect);
-      pushLog(`connect: session ready for ${connectAddress}`);
-    } finally {
-      if (stopScanAfterConnect) {
-        try {
-          await stopScan();
-        } catch {
-          /* ignore */
+      stopScanAfterConnect = true;
+
+      const connectAddress = fromScan.address;
+      try {
+        await connectWithTimeout(connectAddress, CONNECT_ATTEMPT_TIMEOUT_MS);
+        await finalizeConnectSession(connectAddress, fromScan.name, isAutoReconnect);
+      } finally {
+        if (stopScanAfterConnect) {
+          try {
+            await stopScan();
+          } catch {
+            /* ignore */
+          }
         }
       }
     }

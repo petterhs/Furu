@@ -7,6 +7,7 @@
     beginScan,
     connectTo,
     connected,
+    connectingAddress,
     disconnectDevice,
     endScan,
     permissionsOk,
@@ -19,6 +20,7 @@
     sendNotification,
     setActiveProfile,
   } from "$lib/stores/bleSession";
+  import { rememberedDevices } from "$lib/stores/devices";
   import {
     drainNotifications,
     postTestNotification,
@@ -32,6 +34,8 @@
   let drained = $state<ForwardedNotification[]>([]);
   let testingBusy = $state(false);
   let testError = $state<string | null>(null);
+  let directConnectAddress = $state("");
+  let directConnectBusy = $state(false);
 
   async function sendTestNotification() {
     testError = null;
@@ -54,6 +58,24 @@
     await sendTestNotification();
     await new Promise((resolve) => setTimeout(resolve, 500));
     await drainNow();
+  }
+
+  $effect(() => {
+    const list = $rememberedDevices;
+    if (!directConnectAddress.trim() && list.length > 0) {
+      directConnectAddress = list[0].address;
+    }
+  });
+
+  async function connectDirectNoScan(): Promise<void> {
+    const addr = directConnectAddress.trim();
+    if (!addr) return;
+    directConnectBusy = true;
+    try {
+      await connectTo(addr, { skipScan: true });
+    } finally {
+      directConnectBusy = false;
+    }
   }
 </script>
 
@@ -127,6 +149,35 @@
     >
       Send Notification
     </button>
+  </article>
+
+  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+    <h2 class="m-0 mb-3 text-base font-semibold">Direct connect (no scan)</h2>
+    <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
+      Same path as auto-reconnect: <code class="font-mono text-xs">connect(address)</code> without starting a BLE scan.
+      Useful to verify the OS still knows the peripheral (often after bonding). If this fails, try Scan + Connect
+      below.
+    </p>
+    <label class="label mt-3">
+      <span class="label-text">Device address</span>
+      <select class="select" bind:value={directConnectAddress}>
+        {#each $rememberedDevices as d (d.id)}
+          <option value={d.address}>{d.name} — {d.address}</option>
+        {:else}
+          <option value="">No remembered devices (pair from Home first)</option>
+        {/each}
+      </select>
+    </label>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        class="btn btn-sm preset-filled-primary-500"
+        type="button"
+        onclick={() => void connectDirectNoScan()}
+        disabled={directConnectBusy || !$rememberedDevices.length || $connectingAddress != null}
+      >
+        {directConnectBusy ? "Connecting…" : "Connect without scan"}
+      </button>
+    </div>
   </article>
 
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
