@@ -27,6 +27,8 @@
     remembered ? showHeartRateLoggingSettings(profilePreference, $deviceProfileCatalog) : false,
   );
   const heartRateLoggingEnabled = $derived(remembered?.heartRateLoggingEnabled ?? false);
+  const autoReconnect = $derived(remembered?.autoReconnect ?? true);
+  const replayMissed = $derived(remembered?.replayMissedNotificationsOnReconnect ?? true);
   const ctsEnabled = $derived(remembered?.currentTimeSyncEnabled ?? true);
   const ctsInterval = $derived(
     clampCtsSyncIntervalMinutes(remembered?.currentTimeSyncIntervalMinutes ?? CTS_SYNC_DEFAULT_MINUTES),
@@ -96,6 +98,43 @@
           <Switch.Thumb />
         </Switch.Control>
       </Switch>
+
+      <Switch
+        class="mt-4 flex w-full items-center justify-between gap-4"
+        checked={autoReconnect}
+        disabled={!remembered}
+        onCheckedChange={({ checked }) => {
+          if (!remembered) return;
+          void updateRememberedDevice(remembered.id, { autoReconnect: checked });
+        }}
+      >
+        <Switch.Label class="text-sm">Auto-reconnect after unexpected disconnect</Switch.Label>
+        <Switch.Control class="preset-filled-primary-500">
+          <Switch.Thumb />
+        </Switch.Control>
+      </Switch>
+      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
+        When the link drops without using Disconnect, the app retries for a few minutes (see Logs).
+      </p>
+
+      <Switch
+        class="mt-4 flex w-full items-center justify-between gap-4"
+        checked={replayMissed}
+        disabled={!remembered}
+        onCheckedChange={({ checked }) => {
+          if (!remembered) return;
+          void updateRememberedDevice(remembered.id, { replayMissedNotificationsOnReconnect: checked });
+        }}
+      >
+        <Switch.Label class="text-sm">Replay missed phone notifications after auto-reconnect</Switch.Label>
+        <Switch.Control class="preset-filled-primary-500">
+          <Switch.Thumb />
+        </Switch.Control>
+      </Switch>
+      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
+        Manual connects always skip old notifications so pairing does not spam the watch. This only affects automatic
+        reconnects.
+      </p>
 
       {#if showCts}
         <div class="mt-6 border-t border-[color:var(--color-surface-200-800)] pt-4">

@@ -6,6 +6,7 @@
   import { Navigation } from "@skeletonlabs/skeleton-svelte";
   import { initializeBleSession } from "$lib/stores/bleSession";
   import { hydrateBatteryHistory } from "$lib/stores/batteryHistory";
+  import { hydrateConnectionHistory } from "$lib/stores/connectionHistory";
   import { hydrateRememberedDevices } from "$lib/stores/devices";
   import { hydrateAppSettings } from "$lib/stores/appSettings";
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
@@ -43,10 +44,11 @@
     void requestPromptablePermissions();
     void hydrateRememberedDevices();
     void hydrateBatteryHistory();
+    void hydrateConnectionHistory();
   });
 </script>
 
-<div class="mx-auto flex h-dvh max-h-dvh min-h-0 max-w-2xl flex-col overflow-hidden">
+<div class="mx-auto flex h-dvh max-h-dvh min-h-0 min-w-0 max-w-2xl flex-col overflow-hidden">
   <header
     class="sticky top-0 z-10 shrink-0 border-b border-surface-200-800 bg-surface-50-950 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] backdrop-blur-sm"
   >
@@ -69,7 +71,7 @@
     </div>
   </header>
 
-  <main class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+  <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
     {@render children()}
   </main>
 

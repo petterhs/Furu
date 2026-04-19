@@ -229,3 +229,35 @@ pub fn spawn_background_forwarder<R: Runtime>(app: AppHandle<R>) {
 
 #[cfg(not(target_os = "android"))]
 pub fn spawn_background_forwarder<R: Runtime>(_app: AppHandle<R>) {}
+
+/// Advance the phone notification watermark to the newest queued item (or “now”) without
+/// forwarding, so a fresh **manual** connect does not blast historical notifications to the watch.
+#[cfg(target_os = "android")]
+pub async fn absorb_notification_backlog_watermark(app: tauri::AppHandle) -> Result<(), String> {
+    let pending = fetch_recent_notifications(&app)?;
+    let watermark = pending
+        .iter()
+        .map(|n| n.posted_at_ms)
+        .max()
+        .unwrap_or_else(current_time_ms_unix);
+    LAST_FORWARDED_POSTED_AT_MS.store(watermark, Ordering::Relaxed);
+    eprintln!(
+        "[notif-fwd] absorb backlog watermark={watermark} (recent_count={})",
+        pending.len()
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn current_time_ms_unix() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn absorb_notification_backlog_watermark(_app: tauri::AppHandle) -> Result<(), String> {
+    Ok(())
+}

@@ -73,6 +73,12 @@ pub fn ble_set_connection_state(connected: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// See [`super::notification_forwarding::absorb_notification_backlog_watermark`].
+#[tauri::command]
+pub async fn ble_absorb_notification_backlog_watermark(app: tauri::AppHandle) -> Result<(), String> {
+    super::notification_forwarding::absorb_notification_backlog_watermark(app).await
+}
+
 #[tauri::command]
 pub fn ble_set_blocked_notification_packages(packages: Vec<String>) -> Result<(), String> {
     let mut seen = std::collections::HashSet::new();

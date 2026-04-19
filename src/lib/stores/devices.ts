@@ -24,6 +24,8 @@ function migrateRememberedDeviceShape(device: RememberedDevice): RememberedDevic
     currentTimeSyncEnabled: device.currentTimeSyncEnabled ?? true,
     currentTimeSyncIntervalMinutes: clampCtsSyncIntervalMinutes(device.currentTimeSyncIntervalMinutes),
     heartRateLoggingEnabled: device.heartRateLoggingEnabled ?? false,
+    autoReconnect: device.autoReconnect ?? true,
+    replayMissedNotificationsOnReconnect: device.replayMissedNotificationsOnReconnect ?? true,
   };
 }
 
@@ -41,11 +43,13 @@ export async function hydrateRememberedDevices(): Promise<void> {
     const needsCts =
       raw.currentTimeSyncEnabled === undefined || raw.currentTimeSyncIntervalMinutes === undefined;
     const needsHr = raw.heartRateLoggingEnabled === undefined;
+    const needsReconnect = raw.autoReconnect === undefined;
+    const needsReplay = raw.replayMissedNotificationsOnReconnect === undefined;
     const needsClamp =
       raw.currentTimeSyncIntervalMinutes !== undefined &&
       clampCtsSyncIntervalMinutes(raw.currentTimeSyncIntervalMinutes) !==
         raw.currentTimeSyncIntervalMinutes;
-    if (needsAddr || needsCts || needsClamp || needsHr) changed = true;
+    if (needsAddr || needsCts || needsClamp || needsHr || needsReconnect || needsReplay) changed = true;
     const base: RememberedDevice = { ...device, address, id } as RememberedDevice;
     return migrateRememberedDeviceShape(base);
   });
@@ -78,6 +82,8 @@ export async function bindRememberedDevice(device: BleDevice): Promise<void> {
     currentTimeSyncEnabled: true,
     currentTimeSyncIntervalMinutes: CTS_SYNC_DEFAULT_MINUTES,
     heartRateLoggingEnabled: false,
+    autoReconnect: true,
+    replayMissedNotificationsOnReconnect: true,
   };
   const withoutCurrent = current.filter((d) => !bleAddressesEqual(d.address, address));
   const next = [nextDevice, ...withoutCurrent];

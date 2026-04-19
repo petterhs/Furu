@@ -31,7 +31,13 @@ import {
   getFeatureIdsForProfileId,
   hydrateDeviceProfiles,
 } from "$lib/stores/deviceProfiles";
+import { appendConnectionEvent } from "$lib/stores/connectionHistory";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
+
+export type ConnectOptions = {
+  /** When true, this connection attempt is from the auto-reconnect loop (not the user tapping Connect). */
+  isAutoReconnect?: boolean;
+};
 
 export const scanResults = writable<BleDevice[]>([]);
 export const connected = writable(false);
@@ -57,6 +63,114 @@ let batteryPollIntervalId: ReturnType<typeof setInterval> | null = null;
 let batteryReadInFlight = false;
 const BATTERY_POLL_INTERVAL_MS = 60_000;
 let lastBatteryGateLog: string | null = null;
+
+let userRequestedDisconnect = false;
+/** Cleared when the native connection channel reports `connected`, or when a connect attempt fails. */
+let pendingConnectSource: "user" | "auto" | null = null;
+let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let autoReconnectAttempts = 0;
+const AUTO_RECONNECT_DELAY_MS = 5_000;
+const AUTO_RECONNECT_MAX_ATTEMPTS = 12;
+
+function cancelAutoReconnectCycle(): void {
+  if (autoReconnectTimer !== null) {
+    clearTimeout(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
+  autoReconnectAttempts = 0;
+}
+
+function scheduleAutoReconnect(address: string): void {
+  const trimmed = address.trim();
+  if (!trimmed) return;
+  const dev = getRememberedByAddress(trimmed);
+  if (!dev?.autoReconnect) {
+    pushLog("BLE: auto-reconnect skipped (disabled in device settings)");
+    return;
+  }
+  if (autoReconnectTimer !== null) {
+    clearTimeout(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
+  autoReconnectAttempts = 0;
+  pushLog(`BLE: auto-reconnect scheduled in ${AUTO_RECONNECT_DELAY_MS / 1000}s`);
+  autoReconnectTimer = setTimeout(() => {
+    void runAutoReconnectAttempt(trimmed);
+  }, AUTO_RECONNECT_DELAY_MS);
+}
+
+async function runAutoReconnectAttempt(address: string): Promise<void> {
+  autoReconnectTimer = null;
+  if (get(connected) || get(connectingAddress)) {
+    autoReconnectAttempts = 0;
+    return;
+  }
+  const dev = getRememberedByAddress(address);
+  if (!dev?.autoReconnect) {
+    autoReconnectAttempts = 0;
+    return;
+  }
+  const selected = get(selectedAddress);
+  if (!selected || !bleAddressesEqual(selected, address)) {
+    pushLog("BLE: auto-reconnect cancelled (selected device changed)");
+    autoReconnectAttempts = 0;
+    return;
+  }
+  autoReconnectAttempts += 1;
+  if (autoReconnectAttempts > AUTO_RECONNECT_MAX_ATTEMPTS) {
+    pushLog(`BLE: auto-reconnect stopped after ${AUTO_RECONNECT_MAX_ATTEMPTS} failed attempts`);
+    autoReconnectAttempts = 0;
+    return;
+  }
+  pushLog(`BLE: auto-reconnect attempt ${autoReconnectAttempts}/${AUTO_RECONNECT_MAX_ATTEMPTS}`);
+  try {
+    await connectTo(address, { isAutoReconnect: true });
+  } catch (error) {
+    pushLog(`BLE: auto-reconnect error: ${String(error)}`);
+  }
+  if (!get(connected)) {
+    pushLog(`BLE: auto-reconnect retry in ${AUTO_RECONNECT_DELAY_MS / 1000}s`);
+    autoReconnectTimer = setTimeout(() => {
+      void runAutoReconnectAttempt(address);
+    }, AUTO_RECONNECT_DELAY_MS);
+  } else {
+    autoReconnectAttempts = 0;
+    pushLog("BLE: auto-reconnect succeeded");
+  }
+}
+
+function recordConnectionHistoryConnected(detail: string): void {
+  queueMicrotask(() => {
+    const addr = get(selectedAddress);
+    if (!addr) return;
+    const dev = getRememberedByAddress(addr);
+    if (!dev) return;
+    void appendConnectionEvent(dev.id, true, detail);
+  });
+}
+
+function recordConnectionHistoryDisconnected(detail: string, addressAtEvent: string | null): void {
+  if (!addressAtEvent?.trim()) return;
+  const dev = getRememberedByAddress(addressAtEvent);
+  if (!dev) return;
+  void appendConnectionEvent(dev.id, false, detail);
+}
+
+async function maybeAbsorbNotificationBacklog(
+  connectAddress: string,
+  isAutoReconnect: boolean,
+): Promise<void> {
+  const remembered = getRememberedByAddress(connectAddress);
+  const replayMissed = remembered?.replayMissedNotificationsOnReconnect ?? true;
+  const shouldAbsorb = !isAutoReconnect || !replayMissed;
+  if (!shouldAbsorb) return;
+  try {
+    await invoke("ble_absorb_notification_backlog_watermark");
+    pushLog("notifications: absorbed phone backlog (watch will not receive old notifications)");
+  } catch (error) {
+    pushLog(`notifications: backlog absorb failed: ${String(error)}`);
+  }
+}
 
 async function applySessionProfileAfterConnect(
   connectAddress: string,
@@ -281,8 +395,33 @@ export async function initializeBleSession(): Promise<void> {
 
   const connectionChannel = new Channel<boolean>();
   connectionChannel.onmessage = (state) => {
+    const addressAtTransition = get(selectedAddress);
     connected.set(state);
-    pushLog(`connection: ${state ? "connected" : "disconnected"}`);
+    void syncNativeNotificationForwardingGates();
+    if (state) {
+      const src = pendingConnectSource;
+      pendingConnectSource = null;
+      const detail =
+        src === "auto"
+          ? "connected (auto-reconnect)"
+          : src === "user"
+            ? "connected (user)"
+            : "connected (native)";
+      pushLog(`BLE: ${detail}`);
+      recordConnectionHistoryConnected(detail);
+    } else {
+      const userReq = userRequestedDisconnect;
+      userRequestedDisconnect = false;
+      const detail = userReq ? "disconnected (app requested)" : "disconnected (unexpected link loss)";
+      pushLog(`BLE: ${detail}`);
+      recordConnectionHistoryDisconnected(detail, addressAtTransition);
+      if (!userReq && addressAtTransition) {
+        cancelAutoReconnectCycle();
+        scheduleAutoReconnect(addressAtTransition);
+      } else {
+        cancelAutoReconnectCycle();
+      }
+    }
     void syncAndroidBleKeepalive(state);
     for (const listener of connectionListeners) {
       listener(state);
@@ -362,7 +501,7 @@ const CONNECT_ATTEMPT_TIMEOUT_MS = 12_000;
 
 async function connectWithTimeout(address: string, timeoutMs: number): Promise<void> {
   await Promise.race([
-    connect(address, () => pushLog("device disconnected (callback)"), false),
+    connect(address, () => pushLog("BLE: peripheral disconnect callback (link closed from device side)"), false),
     new Promise<never>((_, reject) => {
       setTimeout(() => {
         reject(new Error(`connect timeout after ${Math.round(timeoutMs / 1000)}s`));
@@ -419,13 +558,20 @@ function scanUntilAddressFound(address: string, timeoutMs: number): Promise<BleD
   });
 }
 
-export async function connectTo(address: string): Promise<void> {
+export async function connectTo(address: string, options?: ConnectOptions): Promise<void> {
   let stopScanAfterConnect = false;
   const requested = address.trim();
   if (!requested) return;
+  const isAutoReconnect = options?.isAutoReconnect ?? false;
   if (get(connectingAddress)) {
     pushLog(`connect: already connecting to ${get(connectingAddress)}`);
     return;
+  }
+  if (!isAutoReconnect) {
+    cancelAutoReconnectCycle();
+    pendingConnectSource = "user";
+  } else {
+    pendingConnectSource = "auto";
   }
   connectingAddress.set(requested);
   connectError.set(null);
@@ -464,7 +610,8 @@ export async function connectTo(address: string): Promise<void> {
       }
       await applySessionProfileAfterConnect(connectAddress, fromScan.name);
       await syncNativeNotificationForwardingGates();
-      pushLog(`connect requested: ${connectAddress}`);
+      await maybeAbsorbNotificationBacklog(connectAddress, isAutoReconnect);
+      pushLog(`connect: session ready for ${connectAddress}`);
     } finally {
       if (stopScanAfterConnect) {
         try {
@@ -479,15 +626,21 @@ export async function connectTo(address: string): Promise<void> {
     pushLog(`connect error: ${String(error)}`);
   } finally {
     connectingAddress.set(null);
+    if (!get(connected)) {
+      pendingConnectSource = null;
+    }
   }
 }
 
 export async function disconnectDevice(): Promise<void> {
+  userRequestedDisconnect = true;
+  cancelAutoReconnectCycle();
   try {
     await disconnect();
     selectedAddress.set(null);
-    pushLog("disconnect requested");
+    pushLog("BLE: disconnect finished (app requested)");
   } catch (error) {
+    userRequestedDisconnect = false;
     pushLog(`disconnect error: ${String(error)}`);
   }
 }
