@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an idea or improvement for Furu
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea.
+        Please describe the problem and the desired outcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What pain point are you trying to address?
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should happen?
+      placeholder: It should be possible to...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or alternatives you've considered.
+  - type: input
+    id: firmware
+    attributes:
+      label: Relevant firmware(s)
+      placeholder: InfiniTime, Kongle, Wasp-os, PineTime Pro, etc.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, references, constraints, etc.
