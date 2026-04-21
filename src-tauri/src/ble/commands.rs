@@ -2,6 +2,7 @@ use tauri_plugin_blec::models::WriteType;
 
 use super::ans;
 use super::cts;
+use super::dis;
 use super::feature_id::FeatureId;
 use super::profiles;
 use super::registry;
@@ -154,6 +155,12 @@ pub async fn ble_read_step_count() -> Result<u32, String> {
     }
     let arr: [u8; 4] = bytes[..4].try_into().expect("length checked");
     Ok(u32::from_le_bytes(arr))
+}
+
+/// Reads standard Device Information (`0x180A`) string characteristics (best-effort per field).
+#[tauri::command]
+pub async fn ble_read_device_information() -> Result<dis::DeviceInformation, String> {
+    dis::read_device_information().await
 }
 
 /// Reads the SIG Battery Level (`0x2A19` on `0x180F`) and returns percentage (0-100).

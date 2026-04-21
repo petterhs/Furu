@@ -37,3 +37,10 @@ export function profilePreferenceIncludesHeartRate(
 ): boolean {
   return effectiveFeatureUnionForPreference(profilePreference, catalog).has(FeatureId.bleHr);
 }
+
+export function profilePreferenceIncludesDeviceInformation(
+  profilePreference: string,
+  catalog: DeviceProfileCatalog,
+): boolean {
+  return effectiveFeatureUnionForPreference(profilePreference, catalog).has(FeatureId.bleDeviceInformation);
+}

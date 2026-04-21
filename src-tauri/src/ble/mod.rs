@@ -4,6 +4,7 @@ pub mod commands;
 pub mod notification_forwarding;
 mod ans;
 mod cts;
+mod dis;
 mod feature_id;
 mod profiles;
 mod registry;

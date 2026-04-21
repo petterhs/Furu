@@ -24,7 +24,7 @@ In the Furu app, built-in rows above correspond to **default** device profiles; 
 
 | Feature ID | Classification | Primary service / characteristic | Protocol note | Furu status |
 |------------|----------------|-----------------------------------|---------------|-------------|
-| `ble.device_information` | Standard (SIG) | `0x180A` (Device Information) | Model, firmware revision, etc. | not started |
+| `ble.device_information` | Standard (SIG) | `0x180A` (Device Information); strings e.g. `0x2A24`–`0x2A29` | UTF-8 string characteristics (reads) | done (`ble_read_device_information`; device page grid when profile includes this feature) |
 | `ble.current_time` | Standard (SIG) | `0x1805` (Current Time Service), `0x2A2B` (Current Time) | Time sync to the watch | WIP (manual + optional periodic sync from UI; `ble_poc_send_current_time`) |
 | `ble.battery` | Standard (SIG) | `0x180F` (Battery Service), `0x2A19` (Battery Level) | Battery percentage (0-100) | WIP (connected-only read + periodic polling from UI) |
 | `ble.hr` | Standard (SIG) | `0x180D` (Heart Rate), `0x2A37` (Measurement) | **Notify** on `0x2A37` (Heart Rate Measurement); optional read for first value | done (JS `subscribe` + SIG parser; invalid/off readings hidden; stale value cleared after ~120s without a valid sample) |
@@ -68,3 +68,4 @@ InfiniTime column uses ✓ where the capability is in scope for a typical Infini
 - **InfiniTime** companion and DFU UUIDs change over time; treat the InfiniTime GitHub tree as authoritative and update this document when you pin versions.
 - **`ble.dis_steps`**: Furu reads InfiniTime’s Motion Service step characteristic (since InfiniTime 1.7). Other firmwares would need separate GATT targets or profile-specific commands later.
 - **`ble.hr`**: Uses **notifications** on Heart Rate Measurement (`0x2A37`), not periodic polling—this matches how the SIG service is meant to be used and avoids useless reads while the watch HR app is off. Payloads are decoded per the GATT Heart Rate Measurement format; values outside a plausible BPM band are ignored; when the device reports “sensor contact” and the wearer is not in contact, the UI hides HR until contact returns. If there is no valid sample for ~120 seconds, the displayed value is cleared so a stale number is not shown.
+- **`ble.device_information`**: Reads a subset of DIS string characteristics (manufacturer, model, serial, firmware, hardware, software). Missing or unreadable characteristics appear as empty in the payload; the UI shows an em dash for those fields.

@@ -42,6 +42,7 @@ import {
   HEART_RATE_SERVICE_UUID,
   parseHeartRateMeasurement,
 } from "$lib/ble/hrMeasurement";
+import type { DeviceInformation } from "$lib/types/deviceInformation";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
 
 export type ConnectOptions = {
@@ -75,6 +76,9 @@ export const stepCountError = writable<string | null>(null);
 export const heartRateBpm = writable<number | null>(null);
 export const heartRateUpdatedAt = writable<number | null>(null);
 export const heartRateError = writable<string | null>(null);
+export const deviceInformation = writable<DeviceInformation | null>(null);
+export const deviceInformationError = writable<string | null>(null);
+export const deviceInformationLoading = writable(false);
 
 let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
@@ -95,6 +99,10 @@ let hrReconcileToken = 0;
 let hrStaleTimerId: ReturnType<typeof setInterval> | null = null;
 /** Hide HR if no valid notification for this long (watch HR app off / sensor idle). */
 const HR_STALE_AFTER_MS = 120_000;
+
+/** Avoid repeated DIS reads for the same connection unless forced. */
+let disFetchCompletedForAddress: string | null = null;
+let deviceInformationReadInFlight = false;
 
 let userRequestedDisconnect = false;
 /** Cleared when the native connection channel reports `connected`, or when a connect attempt fails. */
@@ -312,6 +320,12 @@ function clearHrState(): void {
   heartRateBpm.set(null);
   heartRateUpdatedAt.set(null);
   heartRateError.set(null);
+}
+
+function clearDeviceInformationState(): void {
+  deviceInformation.set(null);
+  deviceInformationError.set(null);
+  deviceInformationLoading.set(false);
 }
 
 function clearHrStaleTimer(): void {
@@ -563,6 +577,67 @@ function wireHeartRateSubscriptionReconciliation(): void {
   run();
 }
 
+async function refreshDeviceInformation(): Promise<void> {
+  if (deviceInformationReadInFlight) return;
+  if (!get(connected) || !get(selectedAddress)) return;
+  if (!get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) return;
+  deviceInformationReadInFlight = true;
+  deviceInformationLoading.set(true);
+  deviceInformationError.set(null);
+  deviceInformation.set(null);
+  try {
+    const data = await invoke<DeviceInformation>("ble_read_device_information");
+    deviceInformation.set(data);
+    pushLog("DIS: device information read");
+  } catch (error) {
+    deviceInformationError.set(String(error));
+    deviceInformation.set(null);
+    pushLog(`DIS read error: ${String(error)}`);
+  } finally {
+    deviceInformationReadInFlight = false;
+    deviceInformationLoading.set(false);
+  }
+}
+
+function reconcileDeviceInformation(): void {
+  void (async () => {
+    if (!get(connected) || !get(selectedAddress)) {
+      disFetchCompletedForAddress = null;
+      clearDeviceInformationState();
+      return;
+    }
+    if (!get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) {
+      disFetchCompletedForAddress = null;
+      clearDeviceInformationState();
+      return;
+    }
+    const addr = get(selectedAddress)!;
+    if (disFetchCompletedForAddress === addr) return;
+    await refreshDeviceInformation();
+    disFetchCompletedForAddress = addr;
+  })();
+}
+
+/** Clears the one-shot fetch guard so the next reconcile (or caller) reads DIS again. */
+export async function refreshDeviceInformationNow(): Promise<void> {
+  disFetchCompletedForAddress = null;
+  await refreshDeviceInformation();
+  const addr = get(selectedAddress);
+  if (addr && get(connected) && get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) {
+    disFetchCompletedForAddress = addr;
+  }
+}
+
+function wireDeviceInformationReconciliation(): void {
+  const run = () => {
+    reconcileDeviceInformation();
+  };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  activeFeatureIds.subscribe(run);
+  run();
+}
+
 async function syncNativeNotificationForwardingGates(): Promise<void> {
   const isConnected = get(connected);
   const globalEnabled = get(appSettings).notificationForwardingEnabled;
@@ -677,6 +752,7 @@ export async function initializeBleSession(): Promise<void> {
   wireBatteryPollingReconciliation();
   wireStepPollingReconciliation();
   wireHeartRateSubscriptionReconciliation();
+  wireDeviceInformationReconciliation();
   wireNotificationForwardingGateSync();
 }
 

@@ -12,6 +12,7 @@
     connectionHistoryHydrated,
     connectionSegmentsForRange,
   } from "$lib/stores/connectionHistory";
+  import { profilePreferenceIncludesDeviceInformation } from "$lib/deviceProfileEffective";
   import { FeatureId } from "$lib/bleContract";
   import {
     activeFeatureIds,
@@ -20,11 +21,16 @@
     connectError,
     connectTo,
     connectingAddress,
+    deviceInformation,
+    deviceInformationError,
+    deviceInformationLoading,
     disconnectDevice,
     heartRateBpm,
+    refreshDeviceInformationNow,
     selectedAddress,
     stepCount,
   } from "$lib/stores/bleSession";
+  import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
   import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
@@ -42,6 +48,11 @@
   const isConnectErrorForDevice = $derived(
     Boolean($connectError && bleAddressesEqual($connectError.address, resolvedAddress)),
   );
+
+  const showDeviceInfoSection = $derived(
+    known ? profilePreferenceIncludesDeviceInformation(known.profilePreference, $deviceProfileCatalog) : false,
+  );
+  const canShowLiveDeviceInfo = $derived(showDeviceInfoSection && isCurrentDevice);
 
   type RangeKey = "1d" | "3d" | "7d";
   const RANGE_MS: Record<RangeKey, number> = {
@@ -222,6 +233,97 @@
       <p class="m-0 font-mono text-sm">{resolvedAddress}</p>
     {/if}
   </article>
+
+  {#if known && showDeviceInfoSection}
+    <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
+      <h2 class="m-0 mb-3 text-base font-semibold">Device information</h2>
+      {#if !canShowLiveDeviceInfo}
+        <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
+          Connect to this device to read Bluetooth Device Information (GATT).
+        </p>
+      {:else if $deviceInformationError}
+        <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{$deviceInformationError}</p>
+        <button
+          class="btn btn-sm preset-tonal-primary mt-2"
+          type="button"
+          onclick={() => void refreshDeviceInformationNow()}
+        >
+          Retry
+        </button>
+      {:else if $deviceInformation}
+        {@const di = $deviceInformation}
+        <div class="max-w-2xl overflow-x-auto">
+          <table class="w-full border-collapse text-left text-sm">
+            <tbody class="divide-y divide-[color:var(--color-surface-200-800)]">
+              <tr>
+                <th
+                  scope="row"
+                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
+                >
+                  Manufacturer
+                </th>
+                <td class="py-2 font-medium">{di.manufacturerName?.trim() ? di.manufacturerName : "—"}</td>
+              </tr>
+              <tr>
+                <th
+                  scope="row"
+                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
+                >
+                  Model
+                </th>
+                <td class="py-2 font-medium">{di.modelNumber?.trim() ? di.modelNumber : "—"}</td>
+              </tr>
+              <tr>
+                <th
+                  scope="row"
+                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
+                >
+                  Serial number
+                </th>
+                <td class="py-2 font-mono text-xs sm:text-sm">{di.serialNumber?.trim() ? di.serialNumber : "—"}</td>
+              </tr>
+              <tr>
+                <th
+                  scope="row"
+                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
+                >
+                  Firmware
+                </th>
+                <td class="py-2 font-medium">{di.firmwareRevision?.trim() ? di.firmwareRevision : "—"}</td>
+              </tr>
+              <tr>
+                <th
+                  scope="row"
+                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
+                >
+                  Hardware
+                </th>
+                <td class="py-2 font-medium">{di.hardwareRevision?.trim() ? di.hardwareRevision : "—"}</td>
+              </tr>
+              <tr>
+                <th
+                  scope="row"
+                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
+                >
+                  Software
+                </th>
+                <td class="py-2 font-medium">{di.softwareRevision?.trim() ? di.softwareRevision : "—"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button
+          class="btn btn-xs preset-tonal-surface mt-3"
+          type="button"
+          onclick={() => void refreshDeviceInformationNow()}
+        >
+          Refresh
+        </button>
+      {:else}
+        <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Loading…</p>
+      {/if}
+    </article>
+  {/if}
 
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
     <h2 class="m-0 mb-3 text-base font-semibold">Actions</h2>
