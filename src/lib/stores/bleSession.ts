@@ -6,8 +6,11 @@ import {
   disconnect,
   getAdapterState,
   getScanningUpdates,
+  read,
   startScan,
   stopScan,
+  subscribe,
+  unsubscribe,
 } from "@mnlphlp/plugin-blec";
 import { derived, get, writable, type Readable } from "svelte/store";
 import type { ProfileInfo } from "$lib/bleContract";
@@ -34,6 +37,11 @@ import {
   hydrateDeviceProfiles,
 } from "$lib/stores/deviceProfiles";
 import { appendConnectionEvent } from "$lib/stores/connectionHistory";
+import {
+  HEART_RATE_MEASUREMENT_CHAR_UUID,
+  HEART_RATE_SERVICE_UUID,
+  parseHeartRateMeasurement,
+} from "$lib/ble/hrMeasurement";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
 
 export type ConnectOptions = {
@@ -64,6 +72,9 @@ export const batteryError = writable<string | null>(null);
 export const stepCount = writable<number | null>(null);
 export const stepCountUpdatedAt = writable<number | null>(null);
 export const stepCountError = writable<string | null>(null);
+export const heartRateBpm = writable<number | null>(null);
+export const heartRateUpdatedAt = writable<number | null>(null);
+export const heartRateError = writable<string | null>(null);
 
 let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
@@ -78,6 +89,12 @@ let stepPollIntervalId: ReturnType<typeof setInterval> | null = null;
 let stepReadInFlight = false;
 const STEP_POLL_INTERVAL_MS = 60_000;
 let lastStepGateLog: string | null = null;
+
+/** Monotonic token so overlapping async HR subscribe/unsubscribe runs do not race. */
+let hrReconcileToken = 0;
+let hrStaleTimerId: ReturnType<typeof setInterval> | null = null;
+/** Hide HR if no valid notification for this long (watch HR app off / sensor idle). */
+const HR_STALE_AFTER_MS = 120_000;
 
 let userRequestedDisconnect = false;
 /** Cleared when the native connection channel reports `connected`, or when a connect attempt fails. */
@@ -291,6 +308,44 @@ function clearStepState(): void {
   stepCountError.set(null);
 }
 
+function clearHrState(): void {
+  heartRateBpm.set(null);
+  heartRateUpdatedAt.set(null);
+  heartRateError.set(null);
+}
+
+function clearHrStaleTimer(): void {
+  if (hrStaleTimerId !== null) {
+    clearInterval(hrStaleTimerId);
+    hrStaleTimerId = null;
+  }
+}
+
+function startHrStaleTimer(): void {
+  clearHrStaleTimer();
+  hrStaleTimerId = setInterval(() => {
+    const bpm = get(heartRateBpm);
+    const at = get(heartRateUpdatedAt);
+    if (bpm === null || at === null) return;
+    if (Date.now() - at > HR_STALE_AFTER_MS) {
+      heartRateBpm.set(null);
+      heartRateUpdatedAt.set(null);
+      pushLog("HR: cleared stale value (no recent valid updates)");
+    }
+  }, 30_000);
+}
+
+function applyHrPayload(data: number[]): void {
+  const bpm = parseHeartRateMeasurement(data);
+  heartRateBpm.set(bpm);
+  if (bpm !== null) {
+    heartRateUpdatedAt.set(Date.now());
+    heartRateError.set(null);
+  } else {
+    heartRateUpdatedAt.set(null);
+  }
+}
+
 function logBatteryGate(message: string): void {
   if (lastBatteryGateLog === message) return;
   lastBatteryGateLog = message;
@@ -445,6 +500,69 @@ function wireStepPollingReconciliation(): void {
   run();
 }
 
+async function reconcileHeartRateSubscriptionAsync(): Promise<void> {
+  const token = ++hrReconcileToken;
+  clearHrStaleTimer();
+  try {
+    await unsubscribe(HEART_RATE_MEASUREMENT_CHAR_UUID).catch(() => {
+      /* not subscribed */
+    });
+  } catch {
+    /* ignore */
+  }
+  if (token !== hrReconcileToken) return;
+
+  clearHrState();
+  if (!get(connected) || !get(selectedAddress)) {
+    pushLog("HR: subscription disabled (not connected)");
+    return;
+  }
+  if (!get(activeFeatureIds).includes(FeatureId.bleHr)) {
+    pushLog("HR: subscription disabled (feature gate ble.hr missing)");
+    return;
+  }
+
+  try {
+    await subscribe(HEART_RATE_MEASUREMENT_CHAR_UUID, (data) => {
+      if (token !== hrReconcileToken) return;
+      applyHrPayload(data);
+    });
+    if (token !== hrReconcileToken) {
+      void unsubscribe(HEART_RATE_MEASUREMENT_CHAR_UUID).catch(() => {});
+      return;
+    }
+    heartRateError.set(null);
+    startHrStaleTimer();
+    pushLog("HR: notifications enabled (0x2A37)");
+    try {
+      const initial = await read(HEART_RATE_MEASUREMENT_CHAR_UUID, HEART_RATE_SERVICE_UUID);
+      if (token !== hrReconcileToken) return;
+      applyHrPayload(initial);
+    } catch {
+      /* initial read is best-effort; streaming notifies are primary */
+    }
+  } catch (error) {
+    if (token !== hrReconcileToken) return;
+    clearHrState();
+    heartRateError.set(`Heart rate subscribe failed: ${String(error)}`);
+    pushLog(`HR subscribe error: ${String(error)}`);
+  }
+}
+
+function reconcileHeartRateSubscription(): void {
+  void reconcileHeartRateSubscriptionAsync();
+}
+
+function wireHeartRateSubscriptionReconciliation(): void {
+  const run = () => {
+    reconcileHeartRateSubscription();
+  };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  activeFeatureIds.subscribe(run);
+  run();
+}
+
 async function syncNativeNotificationForwardingGates(): Promise<void> {
   const isConnected = get(connected);
   const globalEnabled = get(appSettings).notificationForwardingEnabled;
@@ -558,6 +676,7 @@ export async function initializeBleSession(): Promise<void> {
   wireCtsSyncReconciliation();
   wireBatteryPollingReconciliation();
   wireStepPollingReconciliation();
+  wireHeartRateSubscriptionReconciliation();
   wireNotificationForwardingGateSync();
 }
 

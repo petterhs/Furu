@@ -1,12 +1,16 @@
 <script lang="ts">
   import Battery from "@lucide/svelte/icons/battery";
   import Footprints from "@lucide/svelte/icons/footprints";
+  import Heart from "@lucide/svelte/icons/heart";
+  import { FeatureId } from "$lib/bleContract";
   import {
+    activeFeatureIds,
     batteryPercent,
     connectError,
     connectTo,
     connected,
     connectingAddress,
+    heartRateBpm,
     selectedAddress,
     stepCount,
   } from "$lib/stores/bleSession";
@@ -36,7 +40,7 @@
           <div class="p-4">
             <div class="font-bold text-[color:var(--color-primary-700-300)]">{device.name}</div>
             <p class="m-0 mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">{device.address}</p>
-            {#if isConnectedDevice(device.address) && ($batteryPercent !== null || $stepCount !== null)}
+            {#if isConnectedDevice(device.address) && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
               <div class="mt-2 flex flex-col gap-1 text-sm text-[color:var(--color-surface-900-100)]">
                 {#if $batteryPercent !== null}
                   <p class="m-0 flex items-center gap-1">
@@ -48,6 +52,12 @@
                   <p class="m-0 flex items-center gap-1">
                     <Footprints class="size-4 shrink-0" />
                     {$stepCount.toLocaleString()} steps
+                  </p>
+                {/if}
+                {#if $activeFeatureIds.includes(FeatureId.bleHr)}
+                  <p class="m-0 flex items-center gap-1">
+                    <Heart class="size-4 shrink-0" />
+                    {$heartRateBpm !== null ? $heartRateBpm : '--'} bpm
                   </p>
                 {/if}
               </div>

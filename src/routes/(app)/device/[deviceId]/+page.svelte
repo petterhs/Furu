@@ -2,6 +2,7 @@
   import { goto } from "$app/navigation";
   import Battery from "@lucide/svelte/icons/battery";
   import Footprints from "@lucide/svelte/icons/footprints";
+  import Heart from "@lucide/svelte/icons/heart";
   import Settings from "@lucide/svelte/icons/settings";
   import { LineChart } from "layerchart";
   import { page } from "$app/state";
@@ -11,13 +12,16 @@
     connectionHistoryHydrated,
     connectionSegmentsForRange,
   } from "$lib/stores/connectionHistory";
+  import { FeatureId } from "$lib/bleContract";
   import {
+    activeFeatureIds,
     batteryPercent,
     connected,
     connectError,
     connectTo,
     connectingAddress,
     disconnectDevice,
+    heartRateBpm,
     selectedAddress,
     stepCount,
   } from "$lib/stores/bleSession";
@@ -189,8 +193,8 @@
     {#if known}
       <p class="m-0"><strong>{known.name}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
-      {#if isCurrentDevice && ($batteryPercent !== null || $stepCount !== null)}
-        <div class="mt-2 flex gap-1 text-sm">
+      {#if isCurrentDevice && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
+        <div class="mt-2 flex flex-col gap-1 text-sm">
           {#if $batteryPercent !== null}
             <p class="m-0 flex items-center gap-1">
               <Battery class="size-4 shrink-0" />
@@ -201,6 +205,12 @@
             <p class="m-0 flex items-center gap-1">
               <Footprints class="size-4 shrink-0" />
               {$stepCount.toLocaleString()} steps
+            </p>
+          {/if}
+          {#if $activeFeatureIds.includes(FeatureId.bleHr)}
+            <p class="m-0 flex items-center gap-1">
+              <Heart class="size-4 shrink-0" />
+              {$heartRateBpm !== null ? $heartRateBpm : '--'} bpm
             </p>
           {/if}
         </div>
