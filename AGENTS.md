@@ -25,8 +25,8 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 
 ## Documentation and single source of truth
 
-- **`docs/features/README.md`** — Taxonomy: SIG standard vs InfiniTime vendor vs firmware-specific (Kongle, Wasp, …).
-- **`docs/features/catalog.md`** — **Feature definitions** table + **firmware capability matrix** (✓ / — for InfiniTime, Kongle, Wasp-os). **Do not rename published feature IDs**; add new ones.
+- **`docs/features/README.md`** — Short pointer to the feature catalog.
+- **`docs/features/catalog.md`** — **Feature definitions** (names, IDs, status, GATT) + **firmware capability matrix**. **Do not rename published feature IDs**; add new ones.
 - **`src/lib/bleContract.ts`** — TypeScript mirror of profile IDs and feature ID strings for the UI.
 - **`src-tauri/src/ble/feature_id.rs`** — Rust `FeatureId` enum; `as_str()` must stay aligned with the catalog and `bleContract.ts`.
 
