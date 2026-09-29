@@ -21,7 +21,7 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 ## BLE architecture (current)
 
 - **Scan, connect, disconnect, permissions** are driven from the **frontend** via `@mnlphlp/plugin-blec` (same connection the Rust side sees).
-- **Rust** (`src-tauri/src/ble/`) holds **feature IDs**, **app profiles**, a small **session** (active profile), **GATT constants** (`registry.rs`), and **Tauri commands** (`commands.rs`)—e.g. CTS and ANS PoC writes, Nordic DFU via **`ble_dfu_flash_package`** (optional **`packetPayloadMax`** **`20…244`** for ATT DFU writes after MTU exchange; emits **`dfu-progress`** `{ phase, percent }`; best-effort **`ble_dfu_cancel`**). **`tauri-plugin-blec`** requests high MTU on **Android** connect—the device DFU UI passes **`244`** only on Android to speed transfers when ATT allows it (desktop keeps default **20**).
+- **Rust** (`src-tauri/src/ble/`) owns feature gating and Nordic legacy application DFU. `ble_dfu_flash_package` accepts a manifest-based application ZIP or a matching BIN/DAT pair. Transfers use 20-byte packets on every platform, validate on the device before activation, emit `dfu-progress`, and support best-effort cancellation. A backend session lock prevents overlapping updates. Activation requested does not mean installation confirmed.
 - New product behaviour (time sync, DFU, HR, …) should grow as **Rust modules** calling `tauri_plugin_blec::get_handler()`, not as ad-hoc UUIDs in Svelte.
 
 ## Documentation and single source of truth

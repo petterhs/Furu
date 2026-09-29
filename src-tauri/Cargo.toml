@@ -34,3 +34,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "test-util"] }

@@ -42,6 +42,14 @@ let
   ];
 in
 {
+  # Desktop CI does not need the Android SDK or cross targets. Local development
+  # keeps the existing Android environment unless this profile is selected.
+  profiles.ci.module = {
+    android.enable = lib.mkForce false;
+    languages.rust.targets = lib.mkForce [];
+    languages.javascript.pnpm.install.enable = lib.mkForce false;
+  };
+
   android = {
     enable = true;
     # Keep in sync with `src-tauri/gen/android/app/build.gradle.kts` (compileSdk / targetSdk).

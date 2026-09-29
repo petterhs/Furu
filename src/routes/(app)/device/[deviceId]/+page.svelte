@@ -10,7 +10,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { appCacheDir, join } from "@tauri-apps/api/path";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { BaseDirectory, mkdir, readFile, writeFile } from "@tauri-apps/plugin-fs";
+  import { BaseDirectory, mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
   import { batteryHistoryByDevice, batteryHistoryHydrated } from "$lib/stores/batteryHistory";
   import {
     connectionHistoryByDevice,
@@ -205,9 +205,8 @@
    * Copy the file the user picked into the app cache with a normal path.
    * Android/content:// and similar URIs are not openable from Rust `std::fs`; plugin-fs resolves them.
    */
-  async function stagePickedFileForRust(sourcePath: string, destFileName: string): Promise<string> {
+  async function stagePickedFileForRust(sourcePath: string, destFileName: string, sessionDir: string): Promise<string> {
     const bytes = await readFile(sourcePath);
-    const sessionDir = `${DFU_STAGING_DIR}/${Date.now()}`;
     await mkdir(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true });
     const rel = `${sessionDir}/${destFileName}`;
     await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
@@ -221,94 +220,87 @@
       init_packet: "Init packet",
       priming: "Priming",
       transfer: "Transferring firmware",
-      applying: "Activating (watch may reboot)",
-      done: "Done",
+      validating: "Validating firmware on the watch",
+      applying: "Requesting activation (watch may reboot)",
+      activation_requested: "Activation requested",
     };
     return map[phase] ?? phase;
   }
 
   function onDfuCancel(): void {
-    void invoke("ble_dfu_cancel");
+    void invoke("ble_dfu_cancel").catch((err) => { dfuError = String(err); });
   }
 
   async function onDfuStart(): Promise<void> {
     if (!canDfu || dfuBusy) return;
     dfuError = null;
     dfuJustFinishedOk = false;
-
-    const first = await open({
-      title: "Select DFU package",
-      filters: [
-        { name: "DFU ZIP", extensions: ["zip"] },
-        { name: "Firmware (.bin)", extensions: ["bin"] },
-      ],
-    });
-    if (first === null) return;
-    const path = Array.isArray(first) ? first[0] : first;
-    if (!path) return;
-
-    const lower = pathSuffixForKind(path);
-    let datPath: string | undefined;
-    if (lower.endsWith(".bin")) {
-      const datPick = await open({
-        title: "Select init packet (.dat)",
-        filters: [{ name: "Init packet", extensions: ["dat"] }],
-      });
-      if (datPick === null) return;
-      datPath = Array.isArray(datPick) ? datPick[0] : datPick;
-      if (!datPath) return;
-    }
-
-    const batteryLine =
-      $batteryPercent !== null
-        ? `Battery: ${$batteryPercent}% (use a charger if low).`
-        : "Battery: unknown — charge the watch before updating.";
-    const ok = window.confirm(
-      [
-        "Flash firmware over Bluetooth (Nordic Secure DFU). Wrong files or an interrupted update can brick the watch.",
-        "Stay in range, keep this app open, and do not disconnect until the transfer finishes.",
-        batteryLine,
-        "",
-        "Start flashing?",
-      ].join("\n"),
-    );
-    if (!ok) return;
-
     dfuBusy = true;
     dfuPhase = "staging";
     dfuPercent = 0;
-
     let unlisten: (() => void) | undefined;
+    const sessionDir = `${DFU_STAGING_DIR}/${crypto.randomUUID()}`;
     try {
+      const first = await open({
+        title: "Select DFU package",
+        filters: [
+          { name: "DFU ZIP", extensions: ["zip"] },
+          { name: "Firmware (.bin)", extensions: ["bin"] },
+        ],
+      });
+      if (first === null) return;
+      const path = Array.isArray(first) ? first[0] : first;
+      if (!path) return;
+
+      const lower = pathSuffixForKind(path);
+      let datPath: string | undefined;
+      if (lower.endsWith(".bin")) {
+        const datPick = await open({
+          title: "Select init packet (.dat)",
+          filters: [{ name: "Init packet", extensions: ["dat"] }],
+        });
+        if (datPick === null) return;
+        datPath = Array.isArray(datPick) ? datPick[0] : datPick;
+        if (!datPath) return;
+      }
+
+      const batteryLine =
+        $batteryPercent !== null
+          ? `Battery: ${$batteryPercent}% (use a charger if low).`
+          : "Battery: unknown — charge the watch before updating.";
+      const ok = window.confirm(
+        [
+          "Flash firmware over Bluetooth (Nordic legacy DFU). Wrong files or an interrupted update can brick the watch.",
+          "Stay in range, keep this app open, and do not disconnect until the transfer finishes.",
+          batteryLine,
+          "",
+          "Start flashing?",
+        ].join("\n"),
+      );
+      if (!ok) return;
+
       let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
       if (datPath !== undefined) {
         input = {
-          firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin"),
-          initDatPath: await stagePickedFileForRust(datPath, "init.dat"),
+          firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin", sessionDir),
+          initDatPath: await stagePickedFileForRust(datPath, "init.dat", sessionDir),
         };
       } else {
-        input = { zipPath: await stagePickedFileForRust(path, "package.zip") };
+        input = { zipPath: await stagePickedFileForRust(path, "package.zip", sessionDir) };
       }
 
       unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
         dfuPhase = e.payload.phase;
         dfuPercent = e.payload.percent;
       });
-      await invoke("ble_dfu_flash_package", {
-        input: {
-          ...input,
-          // Android: tauri-plugin-blec negotiates MTU on connect — use ATT-sized chunks (247−3 typical).
-          ...(typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
-            ? { packetPayloadMax: 244 }
-            : {}),
-        },
-      });
+      await invoke("ble_dfu_flash_package", { input });
       dfuJustFinishedOk = true;
     } catch (err) {
       dfuJustFinishedOk = false;
       dfuError = err instanceof Error ? err.message : String(err);
     } finally {
       unlisten?.();
+      await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
       dfuBusy = false;
     }
   }
@@ -531,7 +523,7 @@
             match. Transfer speed is limited by Bluetooth — stay close. Cancel is best-effort and may take a few seconds.
           </p>
         {:else if dfuJustFinishedOk && dfuError === null}
-          <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Update started; the watch will reboot to apply the firmware.</p>
+          <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Firmware validated and activation requested. Reconnect and check the firmware version, then confirm the trial firmware on the watch. Installation has not been verified by Furu.</p>
         {/if}
         {#if dfuError !== null}
           <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{dfuError}</p>

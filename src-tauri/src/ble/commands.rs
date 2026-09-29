@@ -192,12 +192,9 @@ pub struct DfuFlashInput {
     pub zip_path: Option<String>,
     pub firmware_bin_path: Option<String>,
     pub init_dat_path: Option<String>,
-    /// Max bytes per write to the DFU packet characteristic (`20…244`; default 20). Use ~`negotiated_mtu - 3` after MTU exchange.
-    #[serde(default)]
-    pub packet_payload_max: Option<u8>,
 }
 
-/// Nordic Secure DFU: flash from a ZIP (containing `.bin` / `.dat`) or explicit `firmware_bin` + `init_dat` paths.
+/// Nordic legacy application DFU: flash from a ZIP (containing `.bin` / `.dat`) or explicit `firmware_bin` + `init_dat` paths.
 #[tauri::command]
 pub async fn ble_dfu_flash_package(app: AppHandle, input: DfuFlashInput) -> Result<(), String> {
     {
@@ -210,14 +207,14 @@ pub async fn ble_dfu_flash_package(app: AppHandle, input: DfuFlashInput) -> Resu
             return Err("DFU: active profile does not include infinitime.dfu".to_string());
         }
     }
-    super::nordic_dfu::reset_dfu_cancel();
+    let _session = super::nordic_dfu::start_session()?;
     let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
     let image = super::nordic_dfu::load_dfu_image(
         input.zip_path.as_deref().map(std::path::Path::new),
         input.firmware_bin_path.as_deref().map(std::path::Path::new),
         input.init_dat_path.as_deref().map(std::path::Path::new),
     )?;
-    super::nordic_dfu::run_dfu(&app, handler, image, input.packet_payload_max).await
+    super::nordic_dfu::run_dfu(&app, handler, image).await
 }
 
 /// Best-effort: sets a flag the DFU loop checks between writes and while waiting for notifications. Does not abort mid–ATT write.

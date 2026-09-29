@@ -1,324 +1,388 @@
-//! Nordic Secure DFU over BLE (InfiniTime `doc/ble.md` sequence). Same GATT for InfiniTime, Wasp-os, Kongle.
-
-use std::io::Read;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
-use serde::Serialize;
-use tauri::AppHandle;
-use tauri::Emitter;
-use tauri_plugin_blec::models::WriteType;
-use tauri_plugin_blec::Handler;
-use tokio::sync::mpsc;
+//! InfiniTime's Nordic legacy application DFU protocol, not Nordic Secure DFU.
+//! https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/ble.md#firmware-upgrades
 
 use super::registry;
+use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use tauri_plugin_blec::{models::WriteType, Handler};
+use tokio::sync::mpsc;
+use tokio::time::Instant;
+#[path = "dfu_package.rs"]
+mod package;
+pub use package::load_dfu_image;
+use package::DfuImage;
 
-/// Minimum payload per Nordic DFU **packet characteristic** write (matches default ATT MTU 23 ⇒ 20-byte payload).
-const DFU_PAYLOAD_MIN: usize = 20;
-/// Practical upper bound for one ATT write payload after MTU exchange (ATT MTU 247 ⇒ 244; common phone↔watch cap).
-const DFU_PAYLOAD_CAP: usize = 244;
-
-/// Effective bytes per DFU packet write (`None` ⇒ [`DFU_PAYLOAD_MIN`]). Should be ≤ negotiated ATT_MTU − 3.
-fn dfu_segment_len(packet_payload_max: Option<u8>) -> usize {
-    match packet_payload_max {
-        Some(n) => (n as usize).clamp(DFU_PAYLOAD_MIN, DFU_PAYLOAD_CAP),
-        None => DFU_PAYLOAD_MIN,
-    }
-}
-/// Packet Receipt Notification count — must match `0x08` second byte. Higher = fewer 0x11 waits (faster) if the
-/// boot loader honors it; InfiniTime often uses 10. Increase together with `RECEIPT_INTERVAL_SEGMENTS` only.
-const PRN: u8 = 10;
-const RECEIPT_INTERVAL_SEGMENTS: usize = PRN as usize;
-const RECV_SLICE: Duration = Duration::from_millis(300);
+// InfiniTime's flash writer requires <=20 bytes even after MTU negotiation.
+const PACKET_SIZE: usize = 20;
+const PRN: usize = 10;
 const CP_TIMEOUT: Duration = Duration::from_secs(120);
-
+const CANCEL_POLL: Duration = Duration::from_millis(100);
 static DFU_CANCEL: AtomicBool = AtomicBool::new(false);
+static DFU_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Clear cancel flag. Call at the start of a new DFU session.
-pub fn reset_dfu_cancel() {
+pub fn start_session() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
+    let guard = DFU_LOCK
+        .try_lock()
+        .map_err(|_| "DFU: an update is already running")?;
     DFU_CANCEL.store(false, Ordering::SeqCst);
+    Ok(guard)
 }
 
-/// User requested abort (e.g. Cancel in UI). Best-effort: checked between packet writes and in recv waits.
+/// The receiver times out after cancellation; never activate an incomplete image.
 pub fn request_dfu_cancel() {
     DFU_CANCEL.store(true, Ordering::SeqCst);
 }
 
-fn dfu_canceled() -> bool {
-    DFU_CANCEL.load(Ordering::SeqCst)
-}
-
-fn err_if_canceled() -> Result<(), String> {
-    if dfu_canceled() {
-        return Err("DFU: cancelled by user".to_string());
+fn check_cancel(cancel: &AtomicBool) -> Result<(), String> {
+    if cancel.load(Ordering::SeqCst) {
+        Err("DFU: cancelled; wait for the watch to leave update mode before retrying".into())
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DfuProgressPayload {
-    pub phase: String,
-    pub percent: u8,
+struct DfuProgressPayload {
+    phase: String,
+    percent: u8,
 }
 
-pub struct DfuImage {
-    pub firmware: Vec<u8>,
-    pub init_dat: Vec<u8>,
+// Test the actual transfer sequence without a Bluetooth adapter or Tauri window.
+trait Transport {
+    async fn control(&mut self, data: &[u8], with_response: bool) -> Result<(), String>;
+    async fn packet(&mut self, data: &[u8]) -> Result<(), String>;
+    async fn receive(&mut self) -> Result<Vec<u8>, String>;
 }
 
-/// Load firmware + init packet from a ZIP (any `.bin` / `.dat` entries) or from two paths.
-pub fn load_dfu_image(
-    zip_path: Option<&Path>,
-    firmware_bin_path: Option<&Path>,
-    init_dat_path: Option<&Path>,
-) -> Result<DfuImage, String> {
-    if let Some(z) = zip_path {
-        return load_from_zip(z);
-    }
-    let bin = firmware_bin_path.ok_or("DFU: missing firmware .bin path")?;
-    let dat = init_dat_path.ok_or("DFU: missing init .dat path")?;
-    let firmware = std::fs::read(bin).map_err(|e| format!("DFU: read firmware: {e}"))?;
-    let init_dat = std::fs::read(dat).map_err(|e| format!("DFU: read init .dat: {e}"))?;
-    if firmware.is_empty() {
-        return Err("DFU: firmware file is empty".to_string());
-    }
-    if init_dat.is_empty() {
-        return Err("DFU: init packet is empty".to_string());
-    }
-    Ok(DfuImage { firmware, init_dat })
+struct BleTransport<'a> {
+    handler: &'a Handler,
+    rx: mpsc::Receiver<Vec<u8>>,
+    overflow: std::sync::Arc<AtomicBool>,
 }
 
-fn load_from_zip(path: &Path) -> Result<DfuImage, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("DFU: open zip: {e}"))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("DFU: zip: {e}"))?;
-    let mut bins: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut dats: Vec<(String, Vec<u8>)> = Vec::new();
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| format!("DFU: zip entry {e}"))?;
-        if file.is_dir() {
-            continue;
+impl Transport for BleTransport<'_> {
+    async fn control(&mut self, data: &[u8], with_response: bool) -> Result<(), String> {
+        self.handler
+            .send_data(
+                registry::NORDIC_DFU_CONTROL_POINT_CHAR_UUID,
+                Some(registry::NORDIC_DFU_SERVICE_UUID),
+                data,
+                if with_response {
+                    WriteType::WithResponse
+                } else {
+                    WriteType::WithoutResponse
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())
+    }
+    async fn packet(&mut self, data: &[u8]) -> Result<(), String> {
+        self.handler
+            .send_data(
+                registry::NORDIC_DFU_PACKET_CHAR_UUID,
+                Some(registry::NORDIC_DFU_SERVICE_UUID),
+                data,
+                WriteType::WithoutResponse,
+            )
+            .await
+            .map_err(|e| e.to_string())
+    }
+    async fn receive(&mut self) -> Result<Vec<u8>, String> {
+        if self.overflow.load(Ordering::SeqCst) {
+            return Err("DFU: too many control point notifications".into());
         }
-        let name = file.name().to_string();
-        let lower = name.to_lowercase();
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).map_err(|e| format!("DFU: read zip entry: {e}"))?;
-        if lower.ends_with(".dat") {
-            dats.push((name, buf));
-        } else if lower.ends_with(".bin") {
-            bins.push((name, buf));
-        }
+        self.rx
+            .recv()
+            .await
+            .ok_or_else(|| "DFU: control point channel closed".into())
     }
-    if dats.is_empty() {
-        return Err("DFU: zip: no .dat file found".to_string());
-    }
-    if bins.is_empty() {
-        return Err("DFU: zip: no .bin file found".to_string());
-    }
-    dats.sort_by(|a, b| a.0.cmp(&b.0));
-    bins.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-    let init_dat = dats[0].1.clone();
-    let mut bin_choice = None;
-    for (name, data) in &bins {
-        let n = name.to_lowercase();
-        if n.contains("bootloader") {
-            continue;
-        }
-        bin_choice = Some(data.clone());
-        break;
-    }
-    let firmware = bin_choice.unwrap_or_else(|| bins[0].1.clone());
-    Ok(DfuImage { firmware, init_dat })
 }
 
-fn emit(app: &AppHandle, phase: &str, percent: u8) -> Result<(), String> {
-    app.emit(
-        "dfu-progress",
-        DfuProgressPayload {
-            phase: phase.to_string(),
-            percent,
-        },
-    )
-    .map_err(|e| e.to_string())
-}
-
-/// One control-point notification, or an error. Uses short inner timeouts so `request_dfu_cancel` can be honored during long waits.
-async fn recv_cp(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Result<Vec<u8>, String> {
-    let start = std::time::Instant::now();
+// One deadline covers the whole operation, including irrelevant notifications.
+async fn receive_before<T: Transport>(
+    t: &mut T,
+    deadline: Instant,
+    cancel: &AtomicBool,
+) -> Result<Vec<u8>, String> {
     loop {
-        err_if_canceled()?;
-        if start.elapsed() > CP_TIMEOUT {
-            return Err("DFU: timeout waiting for control point notification".to_string());
+        check_cancel(cancel)?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("DFU: timeout waiting for control point response".into());
         }
-        match tokio::time::timeout(RECV_SLICE, rx.recv()).await {
-            Ok(Some(data)) => return Ok(data),
-            Ok(None) => return Err("DFU: control point channel closed".to_string()),
-            Err(_) => continue, // slice timeout — re-check cancel / wall timeout
+        match tokio::time::timeout(remaining.min(CANCEL_POLL), t.receive()).await {
+            Ok(result) => return result,
+            Err(_) => continue,
         }
     }
 }
 
-async fn expect_cp_exact(
-    rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
-    expected: &[u8],
+fn response(data: &[u8], opcode: u8) -> Result<bool, String> {
+    match data {
+        [0x10, actual, status] => {
+            if *status != 1 {
+                return Err(format!(
+                    "DFU: device rejected opcode 0x{actual:02x} (status 0x{status:02x})"
+                ));
+            }
+            if *actual != opcode {
+                return Err(format!("DFU: unexpected response to opcode 0x{actual:02x}"));
+            }
+            Ok(true)
+        }
+        [0x11, _, _, _, _] => Ok(false), // final receipt can precede transfer completion
+        _ => Err(format!("DFU: malformed control point response {data:02x?}")),
+    }
+}
+
+async fn expect_response<T: Transport>(
+    t: &mut T,
+    opcode: u8,
+    cancel: &AtomicBool,
 ) -> Result<(), String> {
-    for _ in 0..128 {
-        let data = recv_cp(rx).await?;
-        if data == expected {
-            return Ok(());
-        }
-        if data.len() >= expected.len() && data[..expected.len()] == *expected {
+    let deadline = Instant::now() + CP_TIMEOUT;
+    loop {
+        if response(&receive_before(t, deadline, cancel).await?, opcode)? {
             return Ok(());
         }
     }
-    Err(format!(
-        "DFU: timeout waiting for control point response {expected:?}"
-    ))
 }
 
-async fn cp_write(handler: &Handler, data: &[u8]) -> Result<(), String> {
-    err_if_canceled()?;
-    handler
-        .send_data(
-            registry::NORDIC_DFU_CONTROL_POINT_CHAR_UUID,
-            Some(registry::NORDIC_DFU_SERVICE_UUID),
-            data,
-            WriteType::WithResponse,
-        )
-        .await
-        .map_err(|e| e.to_string())
+async fn expect_receipt<T: Transport>(
+    t: &mut T,
+    sent: usize,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    let data = receive_before(t, Instant::now() + CP_TIMEOUT, cancel).await?;
+    match data.as_slice() {
+        [0x11, a, b, c, d] => {
+            let received = u32::from_le_bytes([*a, *b, *c, *d]) as usize;
+            if received != sent { return Err(format!("DFU: byte count mismatch (sent {sent}, device reported {received})")); }
+            Ok(())
+        }
+        [0x10, opcode, status] => Err(format!("DFU: unexpected response while transferring (opcode 0x{opcode:02x}, status 0x{status:02x})")),
+        _ => Err("DFU: malformed packet receipt".into()),
+    }
 }
 
-async fn pkt_write(handler: &Handler, data: &[u8], without_response: bool) -> Result<(), String> {
-    err_if_canceled()?;
-    handler
-        .send_data(
-            registry::NORDIC_DFU_PACKET_CHAR_UUID,
-            Some(registry::NORDIC_DFU_SERVICE_UUID),
-            data,
-            if without_response {
-                WriteType::WithoutResponse
-            } else {
-                WriteType::WithResponse
-            },
-        )
-        .await
-        .map_err(|e| e.to_string())
-}
-
-async fn run_dfu_body(
-    app: &AppHandle,
-    handler: &Handler,
-    rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
+async fn transfer<T: Transport>(
+    t: &mut T,
     image: DfuImage,
-    segment_len: usize,
+    cancel: &AtomicBool,
+    progress: impl Fn(&str, u8) -> Result<(), String>,
 ) -> Result<(), String> {
-    emit(app, "starting", 0)?;
-
-    let fw_size = image.firmware.len() as u32;
-    let mut size_buf = [0u8; 12];
-    size_buf[8..12].copy_from_slice(&fw_size.to_le_bytes());
-
-    cp_write(handler, &[0x01, 0x04]).await?;
-    pkt_write(handler, &size_buf, false).await?;
-    expect_cp_exact(rx, &[0x10, 0x01, 0x01]).await?;
-
-    emit(app, "init_packet", 5)?;
-
-    cp_write(handler, &[0x02, 0x00]).await?;
-    for chunk in image.init_dat.chunks(segment_len) {
-        pkt_write(handler, chunk, false).await?;
-    }
-    cp_write(handler, &[0x02, 0x01]).await?;
-    expect_cp_exact(rx, &[0x10, 0x02, 0x01]).await?;
-
-    emit(app, "priming", 10)?;
-
-    cp_write(handler, &[0x08, PRN]).await?;
-    cp_write(handler, &[0x03]).await?;
-
+    check_cancel(cancel)?;
+    progress("starting", 0)?;
+    t.control(&[0x01, 0x04], true).await?;
+    let mut size = [0u8; 12];
+    size[8..].copy_from_slice(&(image.firmware.len() as u32).to_le_bytes());
+    t.packet(&size).await?;
+    expect_response(t, 0x01, cancel).await?;
+    progress("init_packet", 5)?;
+    t.control(&[0x02, 0x00], true).await?;
+    // InfiniTime parses the complete legacy init packet in one write.
+    t.packet(&image.init_dat).await?;
+    t.control(&[0x02, 0x01], true).await?;
+    expect_response(t, 0x02, cancel).await?;
+    t.control(&[0x08, PRN as u8, 0x00], true).await?;
+    t.control(&[0x03], true).await?;
     let total = image.firmware.len();
-    let mut sent = 0usize;
-    let mut seg_in_batch = 0usize;
-    let chunks: Vec<&[u8]> = image.firmware.chunks(segment_len).collect();
-    let total_chunks = chunks.len();
-
-    for (idx, chunk) in chunks.iter().enumerate() {
-        err_if_canceled()?;
-        pkt_write(handler, chunk, true).await?;
+    let mut sent = 0;
+    for (index, chunk) in image.firmware.chunks(PACKET_SIZE).enumerate() {
+        check_cancel(cancel)?;
+        t.packet(chunk).await?;
         sent += chunk.len();
-        seg_in_batch += 1;
-
-        let pct = (sent.saturating_mul(90) / total.max(1)) as u8 + 10;
-        if idx % 8 == 0 || idx + 1 == total_chunks {
-            emit(app, "transfer", pct.min(99))?;
+        if index % 8 == 0 || sent == total {
+            progress("transfer", (10 + sent * 85 / total) as u8)?;
         }
-
-        if seg_in_batch >= RECEIPT_INTERVAL_SEGMENTS && idx + 1 < total_chunks {
-            let mut got = false;
-            for _ in 0..50 {
-                let data = recv_cp(rx).await?;
-                if !data.is_empty() && data[0] == 0x11 {
-                    if data.len() >= 5 {
-                        let recv = u32::from_le_bytes(data[1..5].try_into().unwrap());
-                        if recv as usize != sent {
-                            return Err(format!(
-                                "DFU: byte count mismatch (sent {sent}, device reported {recv})"
-                            ));
-                        }
-                    }
-                    got = true;
-                    break;
-                }
-            }
-            if !got {
-                return Err("DFU: missing 0x11 receipt after packet batch".to_string());
-            }
-            seg_in_batch = 0;
+        if (index + 1) % PRN == 0 && sent < total {
+            expect_receipt(t, sent, cancel).await?;
         }
     }
-
-    expect_cp_exact(rx, &[0x10, 0x03, 0x01]).await?;
-
-    // Skip validate (0x04): device may reboot or drop GATT before the app can read the response; activate still applies the image.
-    err_if_canceled()?;
-    emit(app, "applying", 99)?;
-    cp_write(handler, &[0x05]).await?;
-
-    emit(app, "done", 100)?;
-    Ok(())
+    expect_response(t, 0x03, cancel).await?;
+    check_cancel(cancel)?;
+    progress("validating", 96)?;
+    t.control(&[0x04], true).await?;
+    expect_response(t, 0x04, cancel).await?;
+    check_cancel(cancel)?;
+    progress("applying", 99)?;
+    // The watch may disconnect to reboot immediately: do not await an ATT reply.
+    t.control(&[0x05], false).await?;
+    progress("activation_requested", 100)
 }
 
-/// Run Nordic DFU (blocking until done or error). Emits `dfu-progress` events.
-///
-/// `packet_payload_max`: optional ATT payload length per DFU packet write (clamped `20…244`). Larger values need a
-/// prior MTU exchange; **tauri-plugin-blec** requests high MTU on Android connect — passing `244` there can cut transfer time.
-pub async fn run_dfu(
-    app: &AppHandle,
-    handler: &Handler,
-    image: DfuImage,
-    packet_payload_max: Option<u8>,
-) -> Result<(), String> {
-    let segment_len = dfu_segment_len(packet_payload_max);
-    let svc = Some(registry::NORDIC_DFU_SERVICE_UUID);
+pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Result<(), String> {
     let cp = registry::NORDIC_DFU_CONTROL_POINT_CHAR_UUID;
-
-    let _ = handler.unsubscribe(cp).await;
-
-    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (tx, rx) = mpsc::channel(32);
+    let overflow = std::sync::Arc::new(AtomicBool::new(false));
+    let callback_overflow = overflow.clone();
     handler
-        .subscribe(
-            cp,
-            svc,
-            move |data| {
-                let _ = tx.send(data);
-            },
-        )
+        .subscribe(cp, Some(registry::NORDIC_DFU_SERVICE_UUID), move |data| {
+            if tx.try_send(data).is_err() {
+                callback_overflow.store(true, Ordering::SeqCst);
+            }
+        })
         .await
         .map_err(|e| format!("DFU: subscribe control point: {e}"))?;
-
-    let result = run_dfu_body(app, handler, &mut rx, image, segment_len).await;
+    let mut transport = BleTransport {
+        handler,
+        rx,
+        overflow,
+    };
+    let result = transfer(&mut transport, image, &DFU_CANCEL, |phase, percent| {
+        app.emit(
+            "dfu-progress",
+            DfuProgressPayload {
+                phase: phase.into(),
+                percent,
+            },
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await;
     let _ = handler.unsubscribe(cp).await;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    #[derive(Default)]
+    struct Mock {
+        replies: VecDeque<Vec<u8>>,
+        writes: Vec<(bool, Vec<u8>, bool)>,
+    }
+    impl Transport for Mock {
+        async fn control(&mut self, data: &[u8], response: bool) -> Result<(), String> {
+            self.writes.push((true, data.to_vec(), response));
+            Ok(())
+        }
+        async fn packet(&mut self, data: &[u8]) -> Result<(), String> {
+            self.writes.push((false, data.to_vec(), false));
+            Ok(())
+        }
+        async fn receive(&mut self) -> Result<Vec<u8>, String> {
+            match self.replies.pop_front() {
+                Some(data) => Ok(data),
+                None => std::future::pending().await,
+            }
+        }
+    }
+    fn image() -> DfuImage {
+        DfuImage {
+            firmware: vec![42; 221],
+            init_dat: vec![0; 14],
+        }
+    }
+    fn mock(status: u8) -> Mock {
+        Mock {
+            replies: vec![
+                vec![0x10, 1, 1],
+                vec![0x10, 2, 1],
+                vec![0x11, 200, 0, 0, 0],
+                vec![0x10, 3, 1],
+                vec![0x10, 4, status],
+            ]
+            .into(),
+            ..Mock::default()
+        }
+    }
+    #[tokio::test]
+    async fn validates_before_activation_and_uses_20_byte_packets() {
+        let mut device = mock(1);
+        transfer(&mut device, image(), &AtomicBool::new(false), |_, _| Ok(()))
+            .await
+            .unwrap();
+        let control: Vec<_> = device
+            .writes
+            .iter()
+            .filter(|w| w.0)
+            .map(|w| (w.1.clone(), w.2))
+            .collect();
+        assert_eq!(
+            control,
+            vec![
+                (vec![1, 4], true),
+                (vec![2, 0], true),
+                (vec![2, 1], true),
+                (vec![8, 10, 0], true),
+                (vec![3], true),
+                (vec![4], true),
+                (vec![5], false)
+            ]
+        );
+        let packets: Vec<_> = device.writes.iter().filter(|w| !w.0).collect();
+        assert_eq!(&packets[0].1[8..], &221u32.to_le_bytes());
+        assert!(packets.iter().all(|w| w.1.len() <= 20 && !w.2));
+        assert_eq!(packets.last().unwrap().1.len(), 1);
+    }
+    #[tokio::test]
+    async fn failed_validation_never_activates() {
+        let mut device = mock(5);
+        assert!(
+            transfer(&mut device, image(), &AtomicBool::new(false), |_, _| Ok(()))
+                .await
+                .unwrap_err()
+                .contains("status 0x05")
+        );
+        assert!(!device.writes.iter().any(|w| w.0 && w.1 == [5]));
+    }
+    #[tokio::test]
+    async fn truncated_or_wrong_receipts_abort() {
+        for receipt in [vec![0x11], vec![0x11, 199, 0, 0, 0]] {
+            let mut device = mock(1);
+            device.replies[2] = receipt;
+            assert!(
+                transfer(&mut device, image(), &AtomicBool::new(false), |_, _| Ok(()))
+                    .await
+                    .is_err()
+            );
+            assert!(!device.writes.iter().any(|w| w.0 && w.1 == [5]));
+        }
+    }
+    #[tokio::test]
+    async fn cancellation_before_activation_never_activates() {
+        let cancel = AtomicBool::new(false);
+        let mut device = mock(1);
+        let result = transfer(&mut device, image(), &cancel, |phase, _| {
+            if phase == "validating" {
+                cancel.store(true, Ordering::SeqCst);
+            }
+            Ok(())
+        })
+        .await;
+        assert!(result.unwrap_err().contains("cancelled"));
+        assert!(!device.writes.iter().any(|w| w.0 && w.1 == [5]));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn missing_response_times_out() {
+        assert!(
+            expect_response(&mut Mock::default(), 1, &AtomicBool::new(false))
+                .await
+                .unwrap_err()
+                .contains("timeout")
+        );
+    }
+    #[test]
+    fn rejects_malformed_and_error_responses() {
+        for data in [
+            &[0x10, 4][..],
+            &[0x10, 4, 1, 0],
+            &[0x10, 4, 5],
+            &[0x10, 3, 1],
+        ] {
+            assert!(response(data, 4).is_err());
+        }
+    }
+    #[test]
+    fn serializes_sessions_and_releases_guard() {
+        let session = start_session().unwrap();
+        assert!(start_session().is_err());
+        drop(session);
+        assert!(start_session().is_ok());
+    }
 }
