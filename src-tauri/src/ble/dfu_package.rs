@@ -83,7 +83,10 @@ pub fn load_dfu_image(
     }
 }
 
-fn load_zip(reader: impl Read + Seek) -> Result<DfuImage, String> {
+fn load_zip(mut reader: impl Read + Seek) -> Result<DfuImage, String> {
+    reader
+        .rewind()
+        .map_err(|e| format!("DFU: rewind ZIP: {e}"))?;
     let mut archive = zip::ZipArchive::new(Cursor::new(read_bounded(reader, 2 * 1024 * 1024)?))
         .map_err(|e| format!("DFU: ZIP: {e}"))?;
     if archive.len() > 128 {
