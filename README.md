@@ -23,7 +23,7 @@ Firmwares we intend to support (links for context):
 | Heart Rate | ✅ |
 | Notifications | ✅ |
 | Steps | ✅ |
-| DFU / OTA | ❌ |
+| DFU / OTA | ⚠️ |
 | Companion UART | ❌ |
 | Kongle (placeholder) | ❌ |
 | Wasp-os (placeholder) | ❌ |
@@ -33,3 +33,11 @@ Firmwares we intend to support (links for context):
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Development and recovery baseline
+
+Run checks inside `devenv shell`: `pnpm check`, `pnpm build`, and `cargo check --locked --manifest-path src-tauri/Cargo.toml`. After a devenv CLI upgrade, `devenv update devenv` updates its pinned modules independently of the other inputs. Submit changes on feature branches through PRs to `main` for maintainer review.
+
+The maintainer has tested OTA from Furu to a development PineTime running InfiniTime with the standard bootloader, including rollback to InfiniTime when the trial firmware was not confirmed. This does not establish Kongle-to-Kongle OTA support: Kongle still needs a DFU receiver and image confirmation.
+
+The recovered DFU implementation remains experimental. Follow-up work must resolve the skipped DFU validation command, derive packet sizes from the negotiated MTU rather than assuming 244 bytes on Android, select matching BIN/DAT files from package metadata, and verify the installed version after reboot. Transfer progress is not proof that a new firmware version was permanently accepted.

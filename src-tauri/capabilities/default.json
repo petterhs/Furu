@@ -9,6 +9,9 @@
     "blec:default",
     "ble-keepalive:default",
     "notification-forwarder:default",
-    "store:default"
+    "store:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-app-write-recursive"
   ]
 }

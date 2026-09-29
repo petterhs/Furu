@@ -6,6 +6,11 @@
   import Settings from "@lucide/svelte/icons/settings";
   import { LineChart } from "layerchart";
   import { page } from "$app/state";
+  import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
+  import { appCacheDir, join } from "@tauri-apps/api/path";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import { BaseDirectory, mkdir, readFile, writeFile } from "@tauri-apps/plugin-fs";
   import { batteryHistoryByDevice, batteryHistoryHydrated } from "$lib/stores/batteryHistory";
   import {
     connectionHistoryByDevice,
@@ -61,6 +66,14 @@
     "7d": 7 * 24 * 60 * 60 * 1000,
   };
   let selectedRange = $state<RangeKey>("3d");
+
+  let dfuBusy = $state(false);
+  let dfuPhase = $state("");
+  let dfuPercent = $state(0);
+  let dfuError = $state<string | null>(null);
+  let dfuJustFinishedOk = $state(false);
+
+  const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
   const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
   const rangeStartMs = $derived(Date.now() - RANGE_MS[selectedRange]);
   const filteredSamples = $derived(
@@ -174,6 +187,131 @@
   const timelineTickLabelStep = $derived(
     timelineTicks.length > 36 ? 3 : timelineTicks.length > 22 ? 2 : 1,
   );
+
+  /** Strip query/hash; decode so %2F…%2Ffile.zip from content URIs can match. */
+  function pathSuffixForKind(p: string): string {
+    const noFrag = p.split("#")[0] ?? p;
+    const noQuery = noFrag.split("?")[0] ?? noFrag;
+    try {
+      return decodeURIComponent(noQuery).toLowerCase();
+    } catch {
+      return noQuery.toLowerCase();
+    }
+  }
+
+  const DFU_STAGING_DIR = "dfu-import";
+
+  /**
+   * Copy the file the user picked into the app cache with a normal path.
+   * Android/content:// and similar URIs are not openable from Rust `std::fs`; plugin-fs resolves them.
+   */
+  async function stagePickedFileForRust(sourcePath: string, destFileName: string): Promise<string> {
+    const bytes = await readFile(sourcePath);
+    const sessionDir = `${DFU_STAGING_DIR}/${Date.now()}`;
+    await mkdir(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true });
+    const rel = `${sessionDir}/${destFileName}`;
+    await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
+    return join(await appCacheDir(), rel);
+  }
+
+  function friendlyDfuPhase(phase: string): string {
+    const map: Record<string, string> = {
+      staging: "Copying package into app storage",
+      starting: "Starting",
+      init_packet: "Init packet",
+      priming: "Priming",
+      transfer: "Transferring firmware",
+      applying: "Activating (watch may reboot)",
+      done: "Done",
+    };
+    return map[phase] ?? phase;
+  }
+
+  function onDfuCancel(): void {
+    void invoke("ble_dfu_cancel");
+  }
+
+  async function onDfuStart(): Promise<void> {
+    if (!canDfu || dfuBusy) return;
+    dfuError = null;
+    dfuJustFinishedOk = false;
+
+    const first = await open({
+      title: "Select DFU package",
+      filters: [
+        { name: "DFU ZIP", extensions: ["zip"] },
+        { name: "Firmware (.bin)", extensions: ["bin"] },
+      ],
+    });
+    if (first === null) return;
+    const path = Array.isArray(first) ? first[0] : first;
+    if (!path) return;
+
+    const lower = pathSuffixForKind(path);
+    let datPath: string | undefined;
+    if (lower.endsWith(".bin")) {
+      const datPick = await open({
+        title: "Select init packet (.dat)",
+        filters: [{ name: "Init packet", extensions: ["dat"] }],
+      });
+      if (datPick === null) return;
+      datPath = Array.isArray(datPick) ? datPick[0] : datPick;
+      if (!datPath) return;
+    }
+
+    const batteryLine =
+      $batteryPercent !== null
+        ? `Battery: ${$batteryPercent}% (use a charger if low).`
+        : "Battery: unknown — charge the watch before updating.";
+    const ok = window.confirm(
+      [
+        "Flash firmware over Bluetooth (Nordic Secure DFU). Wrong files or an interrupted update can brick the watch.",
+        "Stay in range, keep this app open, and do not disconnect until the transfer finishes.",
+        batteryLine,
+        "",
+        "Start flashing?",
+      ].join("\n"),
+    );
+    if (!ok) return;
+
+    dfuBusy = true;
+    dfuPhase = "staging";
+    dfuPercent = 0;
+
+    let unlisten: (() => void) | undefined;
+    try {
+      let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
+      if (datPath !== undefined) {
+        input = {
+          firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin"),
+          initDatPath: await stagePickedFileForRust(datPath, "init.dat"),
+        };
+      } else {
+        input = { zipPath: await stagePickedFileForRust(path, "package.zip") };
+      }
+
+      unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
+        dfuPhase = e.payload.phase;
+        dfuPercent = e.payload.percent;
+      });
+      await invoke("ble_dfu_flash_package", {
+        input: {
+          ...input,
+          // Android: tauri-plugin-blec negotiates MTU on connect — use ATT-sized chunks (247−3 typical).
+          ...(typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
+            ? { packetPayloadMax: 244 }
+            : {}),
+        },
+      });
+      dfuJustFinishedOk = true;
+    } catch (err) {
+      dfuJustFinishedOk = false;
+      dfuError = err instanceof Error ? err.message : String(err);
+    } finally {
+      unlisten?.();
+      dfuBusy = false;
+    }
+  }
 
   async function onForget(): Promise<void> {
     if (!known) return;
@@ -332,9 +470,34 @@
         <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice}>
           Disconnect
         </button>
-        <button class="btn btn-sm preset-tonal-surface" type="button" disabled>
-          OTA Update / DFU
-        </button>
+        {#if canDfu}
+          <button
+            class="btn btn-sm preset-tonal-surface"
+            type="button"
+            disabled={dfuBusy}
+            onclick={() => void onDfuStart()}
+          >
+            {dfuBusy ? "OTA flashing…" : "OTA Update / DFU"}
+          </button>
+          {#if dfuBusy && dfuPhase !== "staging"}
+            <button
+              class="btn btn-sm preset-tonal-surface"
+              type="button"
+              onclick={onDfuCancel}
+            >
+              Cancel
+            </button>
+          {/if}
+        {:else}
+          <button
+            class="btn btn-sm preset-tonal-surface"
+            type="button"
+            disabled
+            title="Enable the infinitime.dfu capability on this device’s profile in Settings."
+          >
+            OTA Update / DFU
+          </button>
+        {/if}
       {:else}
         <button
           class="btn btn-sm preset-filled-primary-500"
@@ -349,6 +512,32 @@
         Forget
       </button>
     </div>
+    {#if isCurrentDevice && !canDfu}
+      <p class="m-0 mt-3 text-sm text-[color:var(--color-surface-700-300)]">
+        OTA requires the <span class="font-mono">infinitime.dfu</span> feature on this device’s profile (Settings → Device
+        Profiles).
+      </p>
+    {/if}
+    {#if dfuBusy || dfuError !== null || dfuJustFinishedOk}
+      <div class="mt-3 max-w-xl space-y-2">
+        {#if dfuBusy}
+          <p class="m-0 text-sm">
+            {friendlyDfuPhase(dfuPhase) || "…"}
+            <span class="tabular-nums text-[color:var(--color-surface-700-300)]">({dfuPercent}%)</span>
+          </p>
+          <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuPercent}></progress>
+          <p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">
+            The watch shows the bootloader’s own step; the percentage here is bytes sent from the phone and often will not
+            match. Transfer speed is limited by Bluetooth — stay close. Cancel is best-effort and may take a few seconds.
+          </p>
+        {:else if dfuJustFinishedOk && dfuError === null}
+          <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Update started; the watch will reboot to apply the firmware.</p>
+        {/if}
+        {#if dfuError !== null}
+          <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{dfuError}</p>
+        {/if}
+      </div>
+    {/if}
     {#if isConnectErrorForDevice}
       <p class="m-0 mt-3 text-sm text-[color:var(--color-error-700-300)]">{$connectError?.message}</p>
     {/if}

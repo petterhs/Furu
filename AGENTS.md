@@ -15,12 +15,13 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 | UI theming | **Tailwind CSS v4** + **Skeleton** — `@tailwindcss/vite` in [`vite.config.js`](vite.config.js); global imports in [`src/app.css`](src/app.css); active theme `catppuccin` via `data-theme` on `<html>` in [`src/app.html`](src/app.html). **Conventions:** prefer **Tailwind utilities** for layout/spacing/typography; use Skeleton **utilities** (`btn`, `card`, `input`, `select`, `preset-*`, …) for surfaces and controls; reach for **`@skeletonlabs/skeleton-svelte`** primitives when they remove bespoke interactive UI (for example `Navigation` in the app shell, `Switch` for settings toggles). Keep **scoped `<style>`** only for cases Tailwind/Skeleton cannot express cleanly. Prefer theme tokens / CSS variables over hard-coded hex colors. |
 | Package manager | **pnpm** |
 | BLE | **`tauri-plugin-blec`** + **`@mnlphlp/plugin-blec`** ([plugin repo](https://github.com/MnlPhlp/tauri-plugin-blec)) |
+| Dialog / files | **`tauri-plugin-dialog`** + **`@tauri-apps/plugin-dialog`** — DFU file pick; **`tauri-plugin-fs`** + **`@tauri-apps/plugin-fs`** — read picked files and stage copies under **`$APPCACHE`** so Rust can `open()` real paths (e.g. Android `content://` URIs are not openable from `std::fs` alone). Capabilities include **`fs:allow-app-write-recursive`** so `mkdir` / `writeFile` under subdirs of **`$APPCACHE`** work (`fs:default`’s `create-app-specific-dirs` only covers the base app folders, not nested paths like `dfu-import/…`). |
 | Environment | **devenv** + **direnv** (`.envrc`); use `devenv shell` before `cargo` / `pnpm` if tools are not on PATH |
 
 ## BLE architecture (current)
 
 - **Scan, connect, disconnect, permissions** are driven from the **frontend** via `@mnlphlp/plugin-blec` (same connection the Rust side sees).
-- **Rust** (`src-tauri/src/ble/`) holds **feature IDs**, **app profiles**, a small **session** (active profile), **GATT constants** (`registry.rs`), and **Tauri commands** (`commands.rs`)—e.g. CTS and ANS PoC writes.
+- **Rust** (`src-tauri/src/ble/`) holds **feature IDs**, **app profiles**, a small **session** (active profile), **GATT constants** (`registry.rs`), and **Tauri commands** (`commands.rs`)—e.g. CTS and ANS PoC writes, Nordic DFU via **`ble_dfu_flash_package`** (optional **`packetPayloadMax`** **`20…244`** for ATT DFU writes after MTU exchange; emits **`dfu-progress`** `{ phase, percent }`; best-effort **`ble_dfu_cancel`**). **`tauri-plugin-blec`** requests high MTU on **Android** connect—the device DFU UI passes **`244`** only on Android to speed transfers when ATT allows it (desktop keeps default **20**).
 - New product behaviour (time sync, DFU, HR, …) should grow as **Rust modules** calling `tauri_plugin_blec::get_handler()`, not as ad-hoc UUIDs in Svelte.
 
 ## Documentation and single source of truth
@@ -57,3 +58,7 @@ pnpm tauri dev
 ## Licence
 
 **MIT** — see [LICENSE](LICENSE).
+
+## Collaboration
+
+Use feature branches and PRs targeting `main`; the maintainer reviews and merges manually. Use the configured Git identity without agent co-author trailers. Hardware checks use the ST-Link-connected PineTime development device; closed devices include an InfiniTime daily driver. Distinguish maintainer-reported hardware results from automated checks. Review the process after the first few PRs.

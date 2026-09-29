@@ -10,6 +10,8 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_blec::init())
         .plugin(tauri_plugin_ble_keepalive::init())
         .plugin(tauri_plugin_notification_forwarder::init())
@@ -35,6 +37,8 @@ pub fn run() {
             ble::commands::ble_read_battery_percentage,
             ble::commands::ble_read_step_count,
             ble::commands::ble_read_device_information,
+            ble::commands::ble_dfu_flash_package,
+            ble::commands::ble_dfu_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
