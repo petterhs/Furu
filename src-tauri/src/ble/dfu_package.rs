@@ -1,6 +1,6 @@
 //! Bounded loading of application-only Nordic legacy DFU packages.
 use std::collections::HashSet;
-use std::io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
 use std::path::Path;
 
 // PineTime's application slot minus its boot magic. The receiver writes the magic.
@@ -84,7 +84,8 @@ pub fn load_dfu_image(
 }
 
 fn load_zip(reader: impl Read + Seek) -> Result<DfuImage, String> {
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("DFU: ZIP: {e}"))?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(read_bounded(reader, 2 * 1024 * 1024)?))
+        .map_err(|e| format!("DFU: ZIP: {e}"))?;
     if archive.len() > 128 {
         return Err("DFU: too many ZIP entries".into());
     }
