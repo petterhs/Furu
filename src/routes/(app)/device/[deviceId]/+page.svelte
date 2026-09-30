@@ -10,7 +10,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { appCacheDir, join } from "@tauri-apps/api/path";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { BaseDirectory, mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
+  import { BaseDirectory, mkdir, open as openFile, remove, writeFile } from "@tauri-apps/plugin-fs";
   import { batteryHistoryByDevice, batteryHistoryHydrated } from "$lib/stores/batteryHistory";
   import {
     connectionHistoryByDevice,
@@ -18,6 +18,7 @@
     connectionSegmentsForRange,
   } from "$lib/stores/connectionHistory";
   import { profilePreferenceIncludesDeviceInformation } from "$lib/deviceProfileEffective";
+  import { readBoundedDfuFile, DFU_FILE_LIMITS } from "$lib/dfuFile";
   import { FeatureId } from "$lib/bleContract";
   import {
     activeFeatureIds,
@@ -205,8 +206,14 @@
    * Copy the file the user picked into the app cache with a normal path.
    * Android/content:// and similar URIs are not openable from Rust `std::fs`; plugin-fs resolves them.
    */
-  async function stagePickedFileForRust(sourcePath: string, destFileName: string, sessionDir: string): Promise<string> {
-    const bytes = await readFile(sourcePath);
+  async function stagePickedFileForRust(sourcePath: string, destFileName: keyof typeof DFU_FILE_LIMITS, sessionDir: string): Promise<string> {
+    const file = await openFile(sourcePath, { read: true });
+    let bytes: Uint8Array;
+    try {
+      bytes = await readBoundedDfuFile(file, DFU_FILE_LIMITS[destFileName]);
+    } finally {
+      await file.close();
+    }
     await mkdir(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true });
     const rel = `${sessionDir}/${destFileName}`;
     await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
@@ -306,7 +313,7 @@
   }
 
   async function onForget(): Promise<void> {
-    if (!known) return;
+    if (dfuBusy || !known) return;
     const confirmed = window.confirm(
       `Forget ${known.name}? This removes the device and its local data.`,
     );
@@ -459,7 +466,7 @@
     <h2 class="m-0 mb-3 text-base font-semibold">Actions</h2>
     <div class="flex flex-wrap gap-2">
       {#if isCurrentDevice}
-        <button class="btn btn-sm preset-tonal-surface" type="button" onclick={disconnectDevice}>
+        <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy} onclick={() => { if (!dfuBusy) void disconnectDevice(); }}>
           Disconnect
         </button>
         {#if canDfu}
@@ -494,13 +501,13 @@
         <button
           class="btn btn-sm preset-filled-primary-500"
           type="button"
-          onclick={() => void connectTo(resolvedAddress)}
-          disabled={isConnectingDevice}
+          onclick={() => { if (!dfuBusy) void connectTo(resolvedAddress); }}
+          disabled={isConnectingDevice || dfuBusy}
         >
           {isConnectingDevice ? "Connecting…" : "Connect"}
         </button>
       {/if}
-      <button class="btn btn-sm preset-tonal-error" type="button" onclick={() => void onForget()}>
+      <button class="btn btn-sm preset-tonal-error" type="button" disabled={dfuBusy} onclick={() => void onForget()}>
         Forget
       </button>
     </div>

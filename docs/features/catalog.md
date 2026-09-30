@@ -56,7 +56,7 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 | Heart Rate | `ble.hr` | ✓ | — | — |
 | Notifications | `ble.anss` | ✓ | — | — |
 | Steps | `ble.dis_steps` | ✓ | — | — |
-| DFU / OTA | `infinitime.dfu` | ⚠️ | Nordic legacy DFU (control `00001531-…`, packet `00001532-…`) | Application manifest ZIP or BIN/DAT pair; bounded reads and CRC checks; 20-byte writes; device validation before activation; post-reboot installation confirmation remains manual |
+| DFU / OTA | `infinitime.dfu` | ✓ | — | — |
 | Companion UART | `infinitime.companion_uart` | ✓ | — | — |
 | Kongle (placeholder) | `kongle.*` | — | — | — |
 | Wasp-os (placeholder) | `wasp.*` | — | — | — |
