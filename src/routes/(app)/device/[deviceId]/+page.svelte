@@ -38,7 +38,7 @@
   } from "$lib/stores/bleSession";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
   import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
-  import { beginDfuSession, dfuCancelable, dfuInProgress, endDfuSession, setDfuCancelable } from "$lib/stores/dfuSession";
+  import { beginDfuSession, dfuInProgress, endDfuSession, setDfuCancelable } from "$lib/stores/dfuSession";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId ?? "");
@@ -233,10 +233,6 @@
       activation_requested: "Activation requested",
     };
     return map[phase] ?? phase;
-  }
-
-  function onDfuCancel(): void {
-    void invoke("ble_dfu_cancel").catch((err) => { dfuError = String(err); });
   }
 
   async function onDfuStart(): Promise<void> {
@@ -479,15 +475,6 @@
           >
             {dfuBusy ? "OTA flashing…" : "OTA Update / DFU"}
           </button>
-          {#if dfuBusy && $dfuCancelable}
-            <button
-              class="btn btn-sm preset-tonal-surface"
-              type="button"
-              onclick={onDfuCancel}
-            >
-              Cancel
-            </button>
-          {/if}
         {:else}
           <button
             class="btn btn-sm preset-tonal-surface"

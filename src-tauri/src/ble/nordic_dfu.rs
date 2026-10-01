@@ -198,7 +198,7 @@ async fn transfer<T: Transport>(
         if index % 8 == 0 || sent == total {
             progress("transfer", (10 + sent * 85 / total) as u8)?;
         }
-        if (index + 1) % PRN == 0 && sent < total {
+        if (index + 1) % PRN == 0 {
             expect_receipt(t, sent, cancel).await?;
         }
     }
@@ -343,6 +343,38 @@ mod tests {
             );
             assert!(!device.writes.iter().any(|w| w.0 && w.1 == [5]));
         }
+    }
+    #[tokio::test]
+    async fn final_prn_boundary_receipt_is_validated() {
+        let mut valid = mock(1);
+        valid.replies[2] = vec![0x11, 200, 0, 0, 0];
+        transfer(
+            &mut valid,
+            DfuImage {
+                firmware: vec![42; 200],
+                init_dat: vec![0; 14],
+            },
+            &AtomicBool::new(false),
+            |_, _| Ok(()),
+        )
+        .await
+        .unwrap();
+
+        let mut wrong = mock(1);
+        wrong.replies[2] = vec![0x11, 199, 0, 0, 0];
+        let result = transfer(
+            &mut wrong,
+            DfuImage {
+                firmware: vec![42; 200],
+                init_dat: vec![0; 14],
+            },
+            &AtomicBool::new(false),
+            |_, _| Ok(()),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("byte count mismatch"));
+        assert!(!wrong.writes.iter().any(|w| w.0 && w.1 == [4]));
+        assert!(!wrong.writes.iter().any(|w| w.0 && w.1 == [5]));
     }
     #[tokio::test]
     async fn cancellation_before_activation_never_activates() {
