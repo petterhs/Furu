@@ -113,7 +113,10 @@ fn load_zip(mut reader: impl Read + Seek) -> Result<DfuImage, String> {
         .get("manifest")
         .and_then(|v| v.as_object())
         .ok_or("DFU: missing manifest object")?;
-    if manifest.len() != 1 || !manifest.contains_key("application") {
+    let has_unsupported_image = manifest
+        .keys()
+        .any(|key| key != "application" && key != "dfu_version");
+    if !manifest.contains_key("application") || has_unsupported_image {
         return Err("DFU: only application-only packages are supported".into());
     }
     let application = &manifest["application"];
@@ -174,8 +177,7 @@ mod tests {
         }
         zip.finish().unwrap()
     }
-    const MANIFEST: &str =
-        r#"{"manifest":{"application":{"bin_file":"app.bin","dat_file":"app.dat"}}}"#;
+    const MANIFEST: &str = r#"{"manifest":{"application":{"bin_file":"app.bin","dat_file":"app.dat","init_packet_data":{"device_type":82}},"dfu_version":0.5}}"#;
     #[test]
     fn crc_matches_standard_vector() {
         assert_eq!(crc16(b"123456789"), 0x29b1);
@@ -201,11 +203,13 @@ mod tests {
             r#"{"manifest":{"bootloader":{"bin_file":"app.bin","dat_file":"app.dat"}}}"#,
             r#"{"manifest":{"application":{"bin_file":"missing.bin","dat_file":"app.dat"}}}"#,
             r#"{"manifest":{"application":{"bin_file":"../app.bin","dat_file":"app.dat"}}}"#,
+            r#"{"manifest":{"application":{"bin_file":"app.bin","dat_file":"app.dat"},"bootloader":{"bin_file":"boot.bin","dat_file":"boot.dat"}}}"#,
             r#"{"manifest":{"application":{},"softdevice":{}}}"#,
         ] {
             assert!(load_zip(archive(manifest, &[1], &dat(&[1]))).is_err());
         }
     }
+
     #[test]
     fn rejects_malformed_init_packet_and_conflicting_inputs() {
         let mut init = dat(&[1]);
