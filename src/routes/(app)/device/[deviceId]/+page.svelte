@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { onDestroy } from "svelte";
   import Battery from "@lucide/svelte/icons/battery";
   import Footprints from "@lucide/svelte/icons/footprints";
   import Heart from "@lucide/svelte/icons/heart";
@@ -85,6 +86,7 @@
 
   let dfuBusy = $derived($dfuInProgress);
   let dfuStatus = $derived($dfuSession?.deviceId === (known?.id ?? deviceId) ? $dfuSession : null);
+  let dfuConfirmation = $state<{ batteryLine: string; resolve: (confirmed: boolean) => void } | null>(null);
 
   const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
   const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
@@ -265,6 +267,20 @@
     return map[phase] ?? phase;
   }
 
+  function requestDfuConfirmation(batteryLine: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      dfuConfirmation = { batteryLine, resolve };
+    });
+  }
+
+  function finishDfuConfirmation(confirmed: boolean): void {
+    const pending = dfuConfirmation;
+    dfuConfirmation = null;
+    pending?.resolve(confirmed);
+  }
+
+  onDestroy(() => finishDfuConfirmation(false));
+
   async function onDfuStart(packageKind: "zip" | "bin"): Promise<void> {
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
@@ -277,6 +293,14 @@
     }
     try {
       sessionDir = `${DFU_STAGING_DIR}/${newDfuSessionId()}`;
+      const batteryLine =
+        $batteryPercent !== null
+          ? `Battery: ${$batteryPercent}% (use a charger if low).`
+          : "Battery: unknown — charge the watch before updating.";
+      const ok = await requestDfuConfirmation(batteryLine);
+      if (!ok || signal.aborted) return;
+
+      const pickerStartedAt = performance.now();
       const first = await withDfuCancellation(open({
         multiple: false,
         title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
@@ -284,6 +308,9 @@
           ? { name: "DFU ZIP", extensions: ["zip"] }
           : { name: "Firmware (.bin)", extensions: ["bin"] }],
       }), signal);
+      if (import.meta.env.DEV) {
+        console.info(`[DFU] Android package picker returned after ${Math.round(performance.now() - pickerStartedAt)} ms`);
+      }
       if (first === DFU_ABORTED || first === null || signal.aborted) return;
       const path = Array.isArray(first) ? first[0] : first;
       if (!path) return;
@@ -299,21 +326,6 @@
         datPath = Array.isArray(datPick) ? datPick[0] : datPick;
         if (!datPath) return;
       }
-
-      const batteryLine =
-        $batteryPercent !== null
-          ? `Battery: ${$batteryPercent}% (use a charger if low).`
-          : "Battery: unknown — charge the watch before updating.";
-      const ok = window.confirm(
-        [
-          "Flash firmware over Bluetooth (Nordic legacy DFU). Wrong files or an interrupted update can brick the watch.",
-          "Stay in range, keep this app open, and do not disconnect until the transfer finishes.",
-          batteryLine,
-          "",
-          "Start flashing?",
-        ].join("\n"),
-      );
-      if (!ok) return;
 
       let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
       updateDfuProgress("staging", 0);
@@ -528,7 +540,7 @@
       {#if isCurrentDevice && canDfu}
         <div class="border-t border-[color:var(--color-surface-200-800)] pt-4">
           <h3 class="m-0 text-sm font-semibold">Firmware update</h3>
-          <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Choose the package format you have; Furu will open the Android file picker.</p>
+          <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Choose a package format. Review the safety check first, then select your firmware in Android’s file picker.</p>
           <div class="mt-3 grid gap-2 sm:grid-cols-2">
             <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("zip")}>
               {dfuBusy ? "Update in progress…" : "Choose DFU ZIP…"}
@@ -773,3 +785,31 @@
   </article>
 
 </section>
+
+{#if dfuConfirmation}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+    <div
+      class="card w-full max-w-md border border-[color:var(--color-surface-200-800)] p-5 shadow-xl preset-tonal-surface"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="dfu-confirm-title"
+      aria-describedby="dfu-confirm-description"
+      tabindex="-1"
+    >
+      <h2 id="dfu-confirm-title" class="m-0 text-lg font-semibold">Before you flash</h2>
+      <div id="dfu-confirm-description" class="mt-3 space-y-2 text-sm">
+        <p class="m-0">This will flash firmware over Bluetooth using Nordic legacy DFU. A wrong file or interrupted update can make the watch unusable.</p>
+        <p class="m-0">Stay nearby, keep Furu open, and do not disconnect until the transfer finishes.</p>
+        <p class="m-0 font-medium">{dfuConfirmation.batteryLine}</p>
+      </div>
+      <div class="mt-5 flex justify-end gap-2">
+        <button class="btn btn-sm preset-tonal-surface" type="button" onclick={() => finishDfuConfirmation(false)}>
+          Cancel
+        </button>
+        <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => finishDfuConfirmation(true)}>
+          Choose firmware
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
