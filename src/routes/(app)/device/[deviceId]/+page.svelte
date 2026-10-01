@@ -37,6 +37,7 @@
     deviceInformationError,
     deviceInformationLoading,
     disconnectDevice,
+    disconnectAfterDfu,
     heartRateBpm,
     refreshDeviceInformationNow,
     selectedAddress,
@@ -360,7 +361,7 @@
         await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
       }
       endDfuSession();
-      if (activationRequested) await disconnectDevice();
+      if (activationRequested) await disconnectAfterDfu();
       if (!keepResult) clearDfuSession();
     }
   }

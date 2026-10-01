@@ -817,6 +817,7 @@ export async function endScan(): Promise<void> {
 
 const CONNECT_SCAN_TIMEOUT_MS = 15_000;
 const CONNECT_ATTEMPT_TIMEOUT_MS = 12_000;
+const DFU_DISCONNECT_TIMEOUT_MS = 5_000;
 
 async function connectWithTimeout(address: string, timeoutMs: number): Promise<void> {
   await Promise.race([
@@ -968,9 +969,58 @@ export async function disconnectDevice(): Promise<void> {
     selectedAddress.set(null);
     pushLog("BLE: disconnect finished (app requested)");
   } catch (error) {
-    userRequestedDisconnect = false;
-    pushLog(`disconnect error: ${String(error)}`);
+    const message = String(error);
+    if (/no device connected/i.test(message)) {
+      // A PineTime can reboot before the BLE plugin processes its disconnect
+      // event. In that case the plugin reports that its peripheral is already
+      // disconnected, while the app's connection-state channel remains stale.
+      connected.set(false);
+      selectedAddress.set(null);
+      userRequestedDisconnect = false;
+      pendingConnectSource = null;
+      cancelAutoReconnectCycle();
+      pushLog("BLE: cleared stale connection state (device already disconnected)");
+    } else {
+      userRequestedDisconnect = false;
+      pushLog(`disconnect error: ${message}`);
+    }
   } finally {
+    endBleMutation();
+  }
+}
+
+/** A successful DFU reboots the watch, so stale BLE state must not keep the UI locked. */
+export async function disconnectAfterDfu(): Promise<void> {
+  if (!beginBleMutation()) {
+    pushLog("DFU disconnect: another BLE operation is in progress; clearing rebooted device state");
+    connected.set(false);
+    selectedAddress.set(null);
+    cancelAutoReconnectCycle();
+    return;
+  }
+
+  userRequestedDisconnect = true;
+  cancelAutoReconnectCycle();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      disconnect(),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("disconnect timed out")), DFU_DISCONNECT_TIMEOUT_MS);
+      }),
+    ]);
+    pushLog("DFU disconnect: BLE link closed");
+  } catch (error) {
+    pushLog(`DFU disconnect: ${String(error)}; clearing stale connection state`);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+    // Activation requests a reboot. Keep Furu usable even when Android misses
+    // the peripheral-disconnected callback or the native plugin's wait hangs.
+    connected.set(false);
+    selectedAddress.set(null);
+    pendingConnectSource = null;
+    userRequestedDisconnect = false;
+    cancelAutoReconnectCycle();
     endBleMutation();
   }
 }
