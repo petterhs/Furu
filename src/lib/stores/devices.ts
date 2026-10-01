@@ -3,6 +3,7 @@ import { get, writable } from "svelte/store";
 import { readRememberedDevices, writeRememberedDevices } from "$lib/persistence/deviceStore";
 import type { RememberedDevice } from "$lib/types/device";
 import { bleAddressesEqual, deviceIdFromAddress } from "$lib/utils/deviceId";
+import { isDfuSessionActive } from "$lib/stores/dfuSession";
 
 export const rememberedDevices = writable<RememberedDevice[]>([]);
 export const devicesHydrated = writable(false);
@@ -172,9 +173,10 @@ export async function updateRememberedDevice(
   await writeRememberedDevices(next);
 }
 
-export async function forgetRememberedDevice(id: string): Promise<void> {
+export async function forgetRememberedDevice(id: string): Promise<boolean> {
+  if (isDfuSessionActive()) return false;
   const next = get(rememberedDevices).filter((device) => device.id !== id);
   rememberedDevices.set(next);
   await writeRememberedDevices(next);
+  return true;
 }
-

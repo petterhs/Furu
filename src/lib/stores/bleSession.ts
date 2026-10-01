@@ -44,6 +44,7 @@ import {
 } from "$lib/ble/hrMeasurement";
 import type { DeviceInformation } from "$lib/types/deviceInformation";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
+import { beginBleMutation, endBleMutation, isDfuSessionActive } from "$lib/stores/dfuSession";
 
 export type ConnectOptions = {
   /** When true, this connection attempt is from the auto-reconnect loop (not the user tapping Connect). */
@@ -880,12 +881,16 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
   let stopScanAfterConnect = false;
   const requested = address.trim();
   if (!requested) return;
-  const isAutoReconnect = options?.isAutoReconnect ?? false;
-  const skipScan = options?.skipScan ?? false;
   if (get(connectingAddress)) {
     pushLog(`connect: already connecting to ${get(connectingAddress)}`);
     return;
   }
+  if (!beginBleMutation()) {
+    pushLog("connect: blocked while another BLE or DFU operation is in progress");
+    return;
+  }
+  const isAutoReconnect = options?.isAutoReconnect ?? false;
+  const skipScan = options?.skipScan ?? false;
   if (!isAutoReconnect) {
     cancelAutoReconnectCycle();
     pendingConnectSource = "user";
@@ -947,10 +952,15 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
     if (!get(connected)) {
       pendingConnectSource = null;
     }
+    endBleMutation();
   }
 }
 
 export async function disconnectDevice(): Promise<void> {
+  if (!beginBleMutation()) {
+    pushLog("disconnect: blocked while another BLE or DFU operation is in progress");
+    return;
+  }
   userRequestedDisconnect = true;
   cancelAutoReconnectCycle();
   try {
@@ -960,6 +970,8 @@ export async function disconnectDevice(): Promise<void> {
   } catch (error) {
     userRequestedDisconnect = false;
     pushLog(`disconnect error: ${String(error)}`);
+  } finally {
+    endBleMutation();
   }
 }
 
@@ -980,4 +992,3 @@ export async function sendNotification(title: string, message: string): Promise<
     pushLog(`ANS notification error: ${String(error)}`);
   }
 }
-

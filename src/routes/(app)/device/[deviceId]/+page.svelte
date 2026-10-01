@@ -38,6 +38,7 @@
   } from "$lib/stores/bleSession";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
   import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
+  import { beginDfuSession, dfuCancelable, dfuInProgress, endDfuSession, setDfuCancelable } from "$lib/stores/dfuSession";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId ?? "");
@@ -68,7 +69,7 @@
   };
   let selectedRange = $state<RangeKey>("3d");
 
-  let dfuBusy = $state(false);
+  let dfuBusy = $derived($dfuInProgress);
   let dfuPhase = $state("");
   let dfuPercent = $state(0);
   let dfuError = $state<string | null>(null);
@@ -239,10 +240,9 @@
   }
 
   async function onDfuStart(): Promise<void> {
-    if (!canDfu || dfuBusy) return;
+    if (!canDfu || $connectingAddress || !beginDfuSession()) return;
     dfuError = null;
     dfuJustFinishedOk = false;
-    dfuBusy = true;
     dfuPhase = "staging";
     dfuPercent = 0;
     let unlisten: (() => void) | undefined;
@@ -300,6 +300,7 @@
         dfuPhase = e.payload.phase;
         dfuPercent = e.payload.percent;
       });
+      setDfuCancelable(true);
       await invoke("ble_dfu_flash_package", { input });
       dfuJustFinishedOk = true;
     } catch (err) {
@@ -308,7 +309,7 @@
     } finally {
       unlisten?.();
       await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
-      dfuBusy = false;
+      endDfuSession();
     }
   }
 
@@ -321,7 +322,7 @@
     if (isCurrentDevice) {
       await disconnectDevice();
     }
-    await forgetRememberedDevice(known.id);
+    if (!(await forgetRememberedDevice(known.id))) return;
     await goto("/home");
   }
 </script>
@@ -473,12 +474,12 @@
           <button
             class="btn btn-sm preset-tonal-surface"
             type="button"
-            disabled={dfuBusy}
+            disabled={dfuBusy || Boolean($connectingAddress)}
             onclick={() => void onDfuStart()}
           >
             {dfuBusy ? "OTA flashing…" : "OTA Update / DFU"}
           </button>
-          {#if dfuBusy && dfuPhase !== "staging"}
+          {#if dfuBusy && $dfuCancelable}
             <button
               class="btn btn-sm preset-tonal-surface"
               type="button"

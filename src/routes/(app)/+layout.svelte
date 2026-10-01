@@ -11,6 +11,8 @@
   import { hydrateAppSettings } from "$lib/stores/appSettings";
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
+  import { invoke } from "@tauri-apps/api/core";
+  import { dfuCancelable, dfuInProgress } from "$lib/stores/dfuSession";
 
   let { children }: { children: Snippet } = $props();
 
@@ -72,6 +74,16 @@
   </header>
 
   <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
+    {#if $dfuInProgress && !/^\/device\/[^/]+$/.test(pathname)}
+      <div class="mb-4 flex items-center justify-between gap-3 rounded-md border border-[color:var(--color-primary-500)] p-3 text-sm" role="status">
+        <span>Firmware update in progress. Keep Furu open and stay near the watch.</span>
+        {#if $dfuCancelable}
+          <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={() => void invoke("ble_dfu_cancel").catch(() => {})}>
+            Cancel
+          </button>
+        {/if}
+      </div>
+    {/if}
     {@render children()}
   </main>
 
