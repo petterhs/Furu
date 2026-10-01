@@ -22,6 +22,7 @@
     updateRememberedDevice,
   } from "$lib/stores/devices";
   import { findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
+  import { dfuInProgress } from "$lib/stores/dfuSession";
 
   const deviceId = $derived(page.params.deviceId);
   const remembered = $derived(findRememberedByDeviceRouteParam(deviceId, $rememberedDevices));
@@ -71,7 +72,7 @@
 
   async function onForget(): Promise<void> {
     if (!remembered) return;
-    await forgetRememberedDevice(remembered.id);
+    if (!(await forgetRememberedDevice(remembered.id))) return;
     await goto("/home");
   }
 </script>
@@ -273,7 +274,12 @@
   </article>
 
   <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-    <button class="btn btn-sm preset-filled-error-500" type="button" onclick={onForget} disabled={!remembered}>
+    <button
+      class="btn btn-sm preset-filled-error-500"
+      type="button"
+      onclick={onForget}
+      disabled={!remembered || $dfuInProgress}
+    >
       Forget / Unbind Device
     </button>
   </div>

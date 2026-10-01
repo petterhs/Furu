@@ -42,3 +42,10 @@ pub const INFINITIME_MOTION_SERVICE_UUID: Uuid = uuid!("00030000-78fc-48fe-8e23-
 /// Step count characteristic on InfiniTime Motion Service (`uint32_t` little-endian). See `doc/MotionService.md` in InfiniTime.
 pub const INFINITIME_MOTION_STEP_COUNT_CHAR_UUID: Uuid =
     uuid!("00030001-78fc-48fe-8e23-433b3a1942d0");
+
+/// Nordic legacy DFU service (legacy UUID from Nordic SDK / InfiniTime `doc/ble.md`).
+pub const NORDIC_DFU_SERVICE_UUID: Uuid = uuid!("00001530-1212-efde-1523-785feabcd123");
+/// DFU Control Point (`0x1531`).
+pub const NORDIC_DFU_CONTROL_POINT_CHAR_UUID: Uuid = uuid!("00001531-1212-efde-1523-785feabcd123");
+/// DFU Packet (`0x1532`).
+pub const NORDIC_DFU_PACKET_CHAR_UUID: Uuid = uuid!("00001532-1212-efde-1523-785feabcd123");

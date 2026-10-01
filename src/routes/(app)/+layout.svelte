@@ -11,6 +11,8 @@
   import { hydrateAppSettings } from "$lib/stores/appSettings";
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
+  import { invoke } from "@tauri-apps/api/core";
+  import { dfuCancelable, dfuSession, dismissDfuSession, requestDfuCancel } from "$lib/stores/dfuSession";
 
   let { children }: { children: Snippet } = $props();
 
@@ -23,6 +25,17 @@
       return;
     }
     window.location.assign("/home");
+  }
+
+  function dfuPhaseLabel(phase: string, percent: number): string {
+    if (phase === "selecting_package") return "Choose a firmware package in the Android file picker.";
+    if (phase === "staging") return "Copying the selected file into app storage.";
+    return `${phase.replaceAll("_", " ")} (${percent}%)`;
+  }
+
+  function cancelDfu(): void {
+    requestDfuCancel();
+    void invoke("ble_dfu_cancel").catch(() => {});
   }
 
   const links: { label: string; href: string; icon: Component; match?: (path: string) => boolean }[] = [
@@ -69,6 +82,38 @@
         </div>
       {/if}
     </div>
+    {#if $dfuSession}
+      <div class="mt-3 flex items-center justify-between gap-3 rounded-md border border-[color:var(--color-primary-500)] p-3 text-sm" role="status" aria-live="polite">
+        <div class="min-w-0 flex-1 space-y-1">
+          <p class="m-0 font-medium">
+            Firmware update for {$dfuSession.deviceName}
+            {#if $dfuSession.outcome === "running"}(in progress){:else if $dfuSession.outcome === "success"}(complete){:else}(failed){/if}
+          </p>
+          {#if $dfuSession.outcome === "running"}
+            <p class="m-0">
+              {dfuPhaseLabel($dfuSession.phase, $dfuSession.percent)}
+              {#if $dfuSession.phase === "selecting_package"}Cancel if the picker does not open.{:else}Keep Furu open and stay near the watch.{/if}
+            </p>
+            {#if $dfuSession.phase !== "selecting_package"}
+              <progress class="h-1.5 w-full accent-[color:var(--color-primary-500)]" max={100} value={$dfuSession.percent}></progress>
+            {/if}
+          {:else if $dfuSession.outcome === "success"}
+            <p class="m-0">Activation was requested. Reconnect to check the watch; Furu cannot confirm installation.</p>
+          {:else}
+            <p class="m-0 text-[color:var(--color-error-700-300)]">{$dfuSession.error ?? "The update did not finish."}</p>
+          {/if}
+        </div>
+        {#if $dfuSession.outcome === "running" && $dfuCancelable}
+          <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={cancelDfu}>
+            Cancel
+          </button>
+        {:else if $dfuSession.outcome !== "running"}
+          <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={dismissDfuSession} aria-label="Dismiss firmware update result">
+            Dismiss
+          </button>
+        {/if}
+      </div>
+    {/if}
   </header>
 
   <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">

@@ -6,6 +6,7 @@ mod ans;
 mod cts;
 mod dis;
 mod feature_id;
+mod nordic_dfu;
 mod profiles;
 mod registry;
 mod session;
