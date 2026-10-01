@@ -203,6 +203,16 @@
 
   const DFU_STAGING_DIR = "dfu-import";
 
+  /** A cache-directory suffix only needs to be unique; WebViews may lack crypto.randomUUID(). */
+  function newDfuSessionId(): string {
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+
   /**
    * Copy the file the user picked into the app cache with a normal path.
    * Android/content:// and similar URIs are not openable from Rust `std::fs`; plugin-fs resolves them.
@@ -259,13 +269,14 @@
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
-    const sessionDir = `${DFU_STAGING_DIR}/${crypto.randomUUID()}`;
+    let sessionDir: string | null = null;
     const signal = getDfuAbortSignal();
     if (!signal) {
       endDfuSession();
       return;
     }
     try {
+      sessionDir = `${DFU_STAGING_DIR}/${newDfuSessionId()}`;
       const first = await withDfuCancellation(open({
         multiple: false,
         title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
@@ -331,7 +342,9 @@
       keepResult = true;
     } finally {
       unlisten?.();
-      await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
+      if (sessionDir) {
+        await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
+      }
       endDfuSession();
       if (!keepResult) clearDfuSession();
     }
