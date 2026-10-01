@@ -12,7 +12,7 @@
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
   import { invoke } from "@tauri-apps/api/core";
-  import { dfuCancelable, dfuInProgress } from "$lib/stores/dfuSession";
+import { dfuCancelable, dfuSession, dismissDfuSession } from "$lib/stores/dfuSession";
 
   let { children }: { children: Snippet } = $props();
 
@@ -71,12 +71,29 @@
         </div>
       {/if}
     </div>
-    {#if $dfuInProgress}
-      <div class="mt-3 flex items-center justify-between gap-3 rounded-md border border-[color:var(--color-primary-500)] p-3 text-sm" role="status">
-        <span>Firmware update in progress. Keep Furu open and stay near the watch.</span>
-        {#if $dfuCancelable}
+    {#if $dfuSession}
+      <div class="mt-3 flex items-center justify-between gap-3 rounded-md border border-[color:var(--color-primary-500)] p-3 text-sm" role="status" aria-live="polite">
+        <div class="min-w-0 flex-1 space-y-1">
+          <p class="m-0 font-medium">
+            Firmware update for {$dfuSession.deviceName}
+            {#if $dfuSession.outcome === "running"}(in progress){:else if $dfuSession.outcome === "success"}(complete){:else}(failed){/if}
+          </p>
+          {#if $dfuSession.outcome === "running"}
+            <p class="m-0">{$dfuSession.phase.replaceAll("_", " ")} ({$dfuSession.percent}%) Keep Furu open and stay near the watch.</p>
+            <progress class="h-1.5 w-full accent-[color:var(--color-primary-500)]" max={100} value={$dfuSession.percent}></progress>
+          {:else if $dfuSession.outcome === "success"}
+            <p class="m-0">Activation was requested. Reconnect to check the watch; Furu cannot confirm installation.</p>
+          {:else}
+            <p class="m-0 text-[color:var(--color-error-700-300)]">{$dfuSession.error ?? "The update did not finish."}</p>
+          {/if}
+        </div>
+        {#if $dfuSession.outcome === "running" && $dfuCancelable}
           <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={() => void invoke("ble_dfu_cancel").catch(() => {})}>
             Cancel
+          </button>
+        {:else if $dfuSession.outcome !== "running"}
+          <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={dismissDfuSession} aria-label="Dismiss firmware update result">
+            Dismiss
           </button>
         {/if}
       </div>

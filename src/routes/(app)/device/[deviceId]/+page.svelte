@@ -38,7 +38,16 @@
   } from "$lib/stores/bleSession";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
   import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
-  import { beginDfuSession, dfuInProgress, endDfuSession, setDfuCancelable } from "$lib/stores/dfuSession";
+import {
+  beginDfuSession,
+  clearDfuSession,
+  dfuInProgress,
+  dfuSession,
+  endDfuSession,
+  finishDfuSession,
+  setDfuCancelable,
+  updateDfuProgress,
+} from "$lib/stores/dfuSession";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId ?? "");
@@ -70,10 +79,7 @@
   let selectedRange = $state<RangeKey>("3d");
 
   let dfuBusy = $derived($dfuInProgress);
-  let dfuPhase = $state("");
-  let dfuPercent = $state(0);
-  let dfuError = $state<string | null>(null);
-  let dfuJustFinishedOk = $state(false);
+  let dfuStatus = $derived($dfuSession?.deviceId === (known?.id ?? deviceId) ? $dfuSession : null);
   let dfuPackageKind = $state<"zip" | "bin">("zip");
 
   const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
@@ -226,12 +232,9 @@
   }
 
   async function onDfuStart(): Promise<void> {
-    if (!canDfu || $connectingAddress || !beginDfuSession()) return;
-    dfuError = null;
-    dfuJustFinishedOk = false;
-    dfuPhase = "staging";
-    dfuPercent = 0;
+    if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
+    let keepResult = false;
     const sessionDir = `${DFU_STAGING_DIR}/${crypto.randomUUID()}`;
     try {
       const first = await open({
@@ -281,19 +284,20 @@
       }
 
       unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
-        dfuPhase = e.payload.phase;
-        dfuPercent = e.payload.percent;
+        updateDfuProgress(e.payload.phase, e.payload.percent);
       });
       setDfuCancelable(true);
       await invoke("ble_dfu_flash_package", { input });
-      dfuJustFinishedOk = true;
+      finishDfuSession("success");
+      keepResult = true;
     } catch (err) {
-      dfuJustFinishedOk = false;
-      dfuError = err instanceof Error ? err.message : String(err);
+      finishDfuSession("error", err instanceof Error ? err.message : String(err));
+      keepResult = true;
     } finally {
       unlisten?.();
       await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
       endDfuSession();
+      if (!keepResult) clearDfuSession();
     }
   }
 
@@ -500,23 +504,22 @@
         Profiles).
       </p>
     {/if}
-    {#if dfuBusy || dfuError !== null || dfuJustFinishedOk}
+    {#if dfuStatus}
       <div class="mt-3 max-w-xl space-y-2">
-        {#if dfuBusy}
+        {#if dfuStatus.outcome === "running"}
           <p class="m-0 text-sm">
-            {friendlyDfuPhase(dfuPhase) || "…"}
-            <span class="tabular-nums text-[color:var(--color-surface-700-300)]">({dfuPercent}%)</span>
+            {friendlyDfuPhase(dfuStatus.phase) || "…"}
+            <span class="tabular-nums text-[color:var(--color-surface-700-300)]">({dfuStatus.percent}%)</span>
           </p>
-          <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuPercent}></progress>
+          <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuStatus.percent}></progress>
           <p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">
             The watch shows the bootloader’s own step; the percentage here is bytes sent from the phone and often will not
             match. Transfer speed is limited by Bluetooth — stay close. Cancel is best-effort and may take a few seconds.
           </p>
-        {:else if dfuJustFinishedOk && dfuError === null}
+        {:else if dfuStatus.outcome === "success"}
           <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Firmware validated and activation requested. Reconnect and check the firmware version, then confirm the trial firmware on the watch. Installation has not been verified by Furu.</p>
-        {/if}
-        {#if dfuError !== null}
-          <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{dfuError}</p>
+        {:else if dfuStatus.error}
+          <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{dfuStatus.error}</p>
         {/if}
       </div>
     {/if}
