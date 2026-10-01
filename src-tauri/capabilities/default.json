@@ -12,6 +12,7 @@
     "store:default",
     "dialog:default",
     "fs:default",
+    "fs:allow-open",
     "fs:allow-app-write-recursive"
   ]
 }

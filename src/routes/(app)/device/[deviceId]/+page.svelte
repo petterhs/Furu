@@ -561,7 +561,13 @@
         {:else if dfuStatus.outcome === "success"}
           <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Firmware validated and activation requested. Reconnect and check the firmware version, then confirm the trial firmware on the watch. Installation has not been verified by Furu.</p>
         {:else if dfuStatus.error}
-          <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{dfuStatus.error}</p>
+          <div class="min-w-0 space-y-2 text-sm text-[color:var(--color-error-700-300)]" role="alert">
+            <p class="m-0 font-medium">Firmware update failed.</p>
+            <details class="min-w-0 rounded-md border border-[color:var(--color-error-700-300)]/40 p-2">
+              <summary class="cursor-pointer">Technical details</summary>
+              <pre class="mb-0 mt-2 max-h-40 max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-xs">{dfuStatus.error}</pre>
+            </details>
+          </div>
         {/if}
       </div>
     {/if}
