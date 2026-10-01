@@ -15,17 +15,29 @@ export const dfuCancelable = writable(false);
 /** Progress and terminal result outlive the device route that started the update. */
 export const dfuSession = writable<DfuSession | null>(null);
 let bleMutationInProgress = false;
+let dfuAbortController: AbortController | null = null;
 
 export function beginDfuSession(deviceId: string, deviceName: string): boolean {
   if (get(dfuInProgress) || bleMutationInProgress) return false;
-  dfuSession.set({ deviceId, deviceName, phase: "staging", percent: 0, outcome: "running", error: null });
+  dfuAbortController = new AbortController();
+  dfuSession.set({ deviceId, deviceName, phase: "selecting_package", percent: 0, outcome: "running", error: null });
   dfuInProgress.set(true);
+  dfuCancelable.set(true);
   return true;
 }
 
 export function endDfuSession(): void {
   dfuCancelable.set(false);
   dfuInProgress.set(false);
+  dfuAbortController = null;
+}
+
+export function requestDfuCancel(): void {
+  dfuAbortController?.abort();
+}
+
+export function getDfuAbortSignal(): AbortSignal | null {
+  return dfuAbortController?.signal ?? null;
 }
 
 export function updateDfuProgress(phase: string, percent: number): void {
@@ -46,10 +58,6 @@ export function clearDfuSession(): void {
 
 export function dismissDfuSession(): void {
   clearDfuSession();
-}
-
-export function setDfuCancelable(cancelable: boolean): void {
-  dfuCancelable.set(cancelable);
 }
 
 export function isDfuSessionActive(): boolean {

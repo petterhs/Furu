@@ -18,7 +18,12 @@
     connectionSegmentsForRange,
   } from "$lib/stores/connectionHistory";
   import { profilePreferenceIncludesDeviceInformation } from "$lib/deviceProfileEffective";
-  import { readBoundedDfuFile, DFU_FILE_LIMITS } from "$lib/dfuFile";
+  import {
+    DFU_ABORTED,
+    DFU_FILE_LIMITS,
+    readBoundedDfuFile,
+    withDfuCancellation,
+  } from "$lib/dfuFile";
   import { FeatureId } from "$lib/bleContract";
   import {
     activeFeatureIds,
@@ -38,16 +43,16 @@
   } from "$lib/stores/bleSession";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
   import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
-import {
-  beginDfuSession,
-  clearDfuSession,
-  dfuInProgress,
-  dfuSession,
-  endDfuSession,
-  finishDfuSession,
-  setDfuCancelable,
-  updateDfuProgress,
-} from "$lib/stores/dfuSession";
+  import {
+    beginDfuSession,
+    clearDfuSession,
+    dfuInProgress,
+    dfuSession,
+    endDfuSession,
+    finishDfuSession,
+    getDfuAbortSignal,
+    updateDfuProgress,
+  } from "$lib/stores/dfuSession";
   import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
 
   const deviceId = $derived(page.params.deviceId ?? "");
@@ -80,7 +85,6 @@ import {
 
   let dfuBusy = $derived($dfuInProgress);
   let dfuStatus = $derived($dfuSession?.deviceId === (known?.id ?? deviceId) ? $dfuSession : null);
-  let dfuPackageKind = $state<"zip" | "bin">("zip");
 
   const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
   const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
@@ -203,23 +207,43 @@ import {
    * Copy the file the user picked into the app cache with a normal path.
    * Android/content:// and similar URIs are not openable from Rust `std::fs`; plugin-fs resolves them.
    */
-  async function stagePickedFileForRust(sourcePath: string, destFileName: keyof typeof DFU_FILE_LIMITS, sessionDir: string): Promise<string> {
-    const file = await openFile(sourcePath, { read: true });
+  async function stagePickedFileForRust(
+    sourcePath: string,
+    destFileName: keyof typeof DFU_FILE_LIMITS,
+    sessionDir: string,
+    signal: AbortSignal,
+    progressStart: number,
+    progressEnd: number,
+  ): Promise<string> {
+    const opened = await withDfuCancellation(openFile(sourcePath, { read: true }), signal);
+    if (opened === DFU_ABORTED) throw new Error("DFU_CANCELLED");
+    const file = opened;
     let bytes: Uint8Array;
     try {
-      bytes = await readBoundedDfuFile(file, DFU_FILE_LIMITS[destFileName]);
+      const limit = DFU_FILE_LIMITS[destFileName];
+      bytes = await readBoundedDfuFile(file, limit, {
+        signal,
+        onProgress: (read) => {
+          const fraction = Math.min(1, read / limit);
+          updateDfuProgress("staging", progressStart + Math.floor(fraction * (progressEnd - progressStart)));
+        },
+      });
     } finally {
       await file.close();
     }
+    if (signal.aborted) throw new Error("DFU_CANCELLED");
     await mkdir(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true });
     const rel = `${sessionDir}/${destFileName}`;
     await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
+    if (signal.aborted) throw new Error("DFU_CANCELLED");
+    updateDfuProgress("staging", progressEnd);
     return join(await appCacheDir(), rel);
   }
 
   function friendlyDfuPhase(phase: string): string {
     const map: Record<string, string> = {
-      staging: "Copying package into app storage",
+      selecting_package: "Choose a firmware package",
+      staging: "Copying selected files into app storage",
       starting: "Starting",
       init_packet: "Init packet",
       priming: "Priming",
@@ -231,29 +255,36 @@ import {
     return map[phase] ?? phase;
   }
 
-  async function onDfuStart(): Promise<void> {
+  async function onDfuStart(packageKind: "zip" | "bin"): Promise<void> {
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
     const sessionDir = `${DFU_STAGING_DIR}/${crypto.randomUUID()}`;
+    const signal = getDfuAbortSignal();
+    if (!signal) {
+      endDfuSession();
+      return;
+    }
     try {
-      const first = await open({
-        title: dfuPackageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
-        filters: [dfuPackageKind === "zip"
+      const first = await withDfuCancellation(open({
+        multiple: false,
+        title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
+        filters: [packageKind === "zip"
           ? { name: "DFU ZIP", extensions: ["zip"] }
           : { name: "Firmware (.bin)", extensions: ["bin"] }],
-      });
-      if (first === null) return;
+      }), signal);
+      if (first === DFU_ABORTED || first === null || signal.aborted) return;
       const path = Array.isArray(first) ? first[0] : first;
       if (!path) return;
 
       let datPath: string | undefined;
-      if (dfuPackageKind === "bin") {
-        const datPick = await open({
+      if (packageKind === "bin") {
+        const datPick = await withDfuCancellation(open({
+          multiple: false,
           title: "Select init packet (.dat)",
           filters: [{ name: "Init packet", extensions: ["dat"] }],
-        });
-        if (datPick === null) return;
+        }), signal);
+        if (datPick === DFU_ABORTED || datPick === null || signal.aborted) return;
         datPath = Array.isArray(datPick) ? datPick[0] : datPick;
         if (!datPath) return;
       }
@@ -274,24 +305,29 @@ import {
       if (!ok) return;
 
       let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
-      if (dfuPackageKind === "bin" && datPath !== undefined) {
+      updateDfuProgress("staging", 0);
+      if (packageKind === "bin" && datPath !== undefined) {
         input = {
-          firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin", sessionDir),
-          initDatPath: await stagePickedFileForRust(datPath, "init.dat", sessionDir),
+          firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin", sessionDir, signal, 0, 45),
+          initDatPath: await stagePickedFileForRust(datPath, "init.dat", sessionDir, signal, 45, 50),
         };
       } else {
-        input = { zipPath: await stagePickedFileForRust(path, "package.zip", sessionDir) };
+        input = { zipPath: await stagePickedFileForRust(path, "package.zip", sessionDir, signal, 0, 50) };
       }
+      if (signal.aborted) return;
 
       unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
         updateDfuProgress(e.payload.phase, e.payload.percent);
       });
-      setDfuCancelable(true);
+      if (signal.aborted) return;
+      updateDfuProgress("starting", 0);
       await invoke("ble_dfu_flash_package", { input });
       finishDfuSession("success");
       keepResult = true;
     } catch (err) {
-      finishDfuSession("error", err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      if (signal.aborted || /cancel(?:led|ed)/i.test(message)) return;
+      finishDfuSession("error", message);
       keepResult = true;
     } finally {
       unlisten?.();
@@ -453,57 +489,48 @@ import {
 
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
     <h2 class="m-0 mb-3 text-base font-semibold">Actions</h2>
-    <div class="flex flex-wrap gap-2">
-      {#if isCurrentDevice}
-        <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy} onclick={() => { if (!dfuBusy) void disconnectDevice(); }}>
-          Disconnect
-        </button>
-        {#if canDfu}
-          <label class="flex items-center gap-2 text-sm">
-            <span>Package</span>
-            <select class="select select-sm preset-tonal-surface" bind:value={dfuPackageKind} disabled={dfuBusy || Boolean($connectingAddress)}>
-              <option value="zip">DFU ZIP</option>
-              <option value="bin">BIN + init DAT</option>
-            </select>
-          </label>
-          <button
-            class="btn btn-sm preset-tonal-surface"
-            type="button"
-            disabled={dfuBusy || Boolean($connectingAddress)}
-            onclick={() => void onDfuStart()}
-          >
-            {dfuBusy ? "OTA flashing…" : "OTA Update / DFU"}
+    <div class="grid gap-4">
+      <div>
+        <p class="m-0 mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Connection</p>
+        <div class="flex flex-wrap gap-2">
+          {#if isCurrentDevice}
+            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy} onclick={() => { if (!dfuBusy) void disconnectDevice(); }}>
+              Disconnect
+            </button>
+          {:else}
+            <button
+              class="btn btn-sm preset-filled-primary-500"
+              type="button"
+              onclick={() => { if (!dfuBusy) void connectTo(resolvedAddress); }}
+              disabled={isConnectingDevice || dfuBusy}
+            >
+              {isConnectingDevice ? "Connecting…" : "Connect"}
+            </button>
+          {/if}
+          <button class="btn btn-sm preset-tonal-error" type="button" disabled={dfuBusy} onclick={() => void onForget()}>
+            Forget
           </button>
-        {:else}
-          <button
-            class="btn btn-sm preset-tonal-surface"
-            type="button"
-            disabled
-            title="Enable the infinitime.dfu capability on this device’s profile in Settings."
-          >
-            OTA Update / DFU
-          </button>
-        {/if}
-      {:else}
-        <button
-          class="btn btn-sm preset-filled-primary-500"
-          type="button"
-          onclick={() => { if (!dfuBusy) void connectTo(resolvedAddress); }}
-          disabled={isConnectingDevice || dfuBusy}
-        >
-          {isConnectingDevice ? "Connecting…" : "Connect"}
-        </button>
+        </div>
+      </div>
+      {#if isCurrentDevice && canDfu}
+        <div class="border-t border-[color:var(--color-surface-200-800)] pt-4">
+          <h3 class="m-0 text-sm font-semibold">Firmware update</h3>
+          <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Choose the package format you have; Furu will open the Android file picker.</p>
+          <div class="mt-3 grid gap-2 sm:grid-cols-2">
+            <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("zip")}>
+              {dfuBusy ? "Update in progress…" : "Choose DFU ZIP…"}
+            </button>
+            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("bin")}>
+              Choose BIN + init DAT…
+            </button>
+          </div>
+        </div>
+      {:else if isCurrentDevice}
+        <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
+          OTA requires the <span class="font-mono">infinitime.dfu</span> feature on this device’s profile (Settings → Device Profiles).
+        </p>
       {/if}
-      <button class="btn btn-sm preset-tonal-error" type="button" disabled={dfuBusy} onclick={() => void onForget()}>
-        Forget
-      </button>
     </div>
-    {#if isCurrentDevice && !canDfu}
-      <p class="m-0 mt-3 text-sm text-[color:var(--color-surface-700-300)]">
-        OTA requires the <span class="font-mono">infinitime.dfu</span> feature on this device’s profile (Settings → Device
-        Profiles).
-      </p>
-    {/if}
     {#if dfuStatus}
       <div class="mt-3 max-w-xl space-y-2">
         {#if dfuStatus.outcome === "running"}
@@ -511,7 +538,9 @@ import {
             {friendlyDfuPhase(dfuStatus.phase) || "…"}
             <span class="tabular-nums text-[color:var(--color-surface-700-300)]">({dfuStatus.percent}%)</span>
           </p>
-          <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuStatus.percent}></progress>
+          {#if dfuStatus.phase !== "selecting_package"}
+            <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuStatus.percent}></progress>
+          {/if}
           <p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">
             The watch shows the bootloader’s own step; the percentage here is bytes sent from the phone and often will not
             match. Transfer speed is limited by Bluetooth — stay close. Cancel is best-effort and may take a few seconds.

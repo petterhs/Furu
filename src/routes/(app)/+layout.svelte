@@ -12,7 +12,7 @@
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
   import { invoke } from "@tauri-apps/api/core";
-import { dfuCancelable, dfuSession, dismissDfuSession } from "$lib/stores/dfuSession";
+  import { dfuCancelable, dfuSession, dismissDfuSession, requestDfuCancel } from "$lib/stores/dfuSession";
 
   let { children }: { children: Snippet } = $props();
 
@@ -25,6 +25,17 @@ import { dfuCancelable, dfuSession, dismissDfuSession } from "$lib/stores/dfuSes
       return;
     }
     window.location.assign("/home");
+  }
+
+  function dfuPhaseLabel(phase: string, percent: number): string {
+    if (phase === "selecting_package") return "Choose a firmware package in the Android file picker.";
+    if (phase === "staging") return "Copying the selected file into app storage.";
+    return `${phase.replaceAll("_", " ")} (${percent}%)`;
+  }
+
+  function cancelDfu(): void {
+    requestDfuCancel();
+    void invoke("ble_dfu_cancel").catch(() => {});
   }
 
   const links: { label: string; href: string; icon: Component; match?: (path: string) => boolean }[] = [
@@ -79,8 +90,13 @@ import { dfuCancelable, dfuSession, dismissDfuSession } from "$lib/stores/dfuSes
             {#if $dfuSession.outcome === "running"}(in progress){:else if $dfuSession.outcome === "success"}(complete){:else}(failed){/if}
           </p>
           {#if $dfuSession.outcome === "running"}
-            <p class="m-0">{$dfuSession.phase.replaceAll("_", " ")} ({$dfuSession.percent}%) Keep Furu open and stay near the watch.</p>
-            <progress class="h-1.5 w-full accent-[color:var(--color-primary-500)]" max={100} value={$dfuSession.percent}></progress>
+            <p class="m-0">
+              {dfuPhaseLabel($dfuSession.phase, $dfuSession.percent)}
+              {#if $dfuSession.phase === "selecting_package"}Cancel if the picker does not open.{:else}Keep Furu open and stay near the watch.{/if}
+            </p>
+            {#if $dfuSession.phase !== "selecting_package"}
+              <progress class="h-1.5 w-full accent-[color:var(--color-primary-500)]" max={100} value={$dfuSession.percent}></progress>
+            {/if}
           {:else if $dfuSession.outcome === "success"}
             <p class="m-0">Activation was requested. Reconnect to check the watch; Furu cannot confirm installation.</p>
           {:else}
@@ -88,7 +104,7 @@ import { dfuCancelable, dfuSession, dismissDfuSession } from "$lib/stores/dfuSes
           {/if}
         </div>
         {#if $dfuSession.outcome === "running" && $dfuCancelable}
-          <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={() => void invoke("ble_dfu_cancel").catch(() => {})}>
+          <button class="btn btn-sm preset-tonal-surface shrink-0" type="button" onclick={cancelDfu}>
             Cancel
           </button>
         {:else if $dfuSession.outcome !== "running"}
