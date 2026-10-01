@@ -19,6 +19,7 @@ const PACKET_SIZE: usize = 20;
 const PRN: usize = 10;
 const CP_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCEL_POLL: Duration = Duration::from_millis(100);
+const UNSUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(2);
 static DFU_CANCEL: AtomicBool = AtomicBool::new(false);
 static DFU_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -272,7 +273,9 @@ pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Res
         .map_err(|e| e.to_string())
     })
     .await;
-    let _ = handler.unsubscribe(cp).await;
+    // Activation may reboot the PineTime and drop GATT before this cleanup.
+    // Do not keep the app's DFU lock held indefinitely waiting for unsubscribe.
+    let _ = tokio::time::timeout(UNSUBSCRIBE_TIMEOUT, handler.unsubscribe(cp)).await;
     result
 }
 

@@ -285,6 +285,7 @@
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
+    let activationRequested = false;
     let sessionDir: string | null = null;
     const signal = getDfuAbortSignal();
     if (!signal) {
@@ -345,6 +346,7 @@
       if (signal.aborted) return;
       updateDfuProgress("starting", 0);
       await invoke("ble_dfu_flash_package", { input });
+      activationRequested = true;
       finishDfuSession("success");
       keepResult = true;
     } catch (err) {
@@ -358,6 +360,7 @@
         await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
       }
       endDfuSession();
+      if (activationRequested) await disconnectDevice();
       if (!keepResult) clearDfuSession();
     }
   }
