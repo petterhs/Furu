@@ -74,6 +74,7 @@
   let dfuPercent = $state(0);
   let dfuError = $state<string | null>(null);
   let dfuJustFinishedOk = $state(false);
+  let dfuPackageKind = $state<"zip" | "bin">("zip");
 
   const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
   const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
@@ -190,17 +191,6 @@
     timelineTicks.length > 36 ? 3 : timelineTicks.length > 22 ? 2 : 1,
   );
 
-  /** Strip query/hash; decode so %2F…%2Ffile.zip from content URIs can match. */
-  function pathSuffixForKind(p: string): string {
-    const noFrag = p.split("#")[0] ?? p;
-    const noQuery = noFrag.split("?")[0] ?? noFrag;
-    try {
-      return decodeURIComponent(noQuery).toLowerCase();
-    } catch {
-      return noQuery.toLowerCase();
-    }
-  }
-
   const DFU_STAGING_DIR = "dfu-import";
 
   /**
@@ -245,19 +235,17 @@
     const sessionDir = `${DFU_STAGING_DIR}/${crypto.randomUUID()}`;
     try {
       const first = await open({
-        title: "Select DFU package",
-        filters: [
-          { name: "DFU ZIP", extensions: ["zip"] },
-          { name: "Firmware (.bin)", extensions: ["bin"] },
-        ],
+        title: dfuPackageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
+        filters: [dfuPackageKind === "zip"
+          ? { name: "DFU ZIP", extensions: ["zip"] }
+          : { name: "Firmware (.bin)", extensions: ["bin"] }],
       });
       if (first === null) return;
       const path = Array.isArray(first) ? first[0] : first;
       if (!path) return;
 
-      const lower = pathSuffixForKind(path);
       let datPath: string | undefined;
-      if (lower.endsWith(".bin")) {
+      if (dfuPackageKind === "bin") {
         const datPick = await open({
           title: "Select init packet (.dat)",
           filters: [{ name: "Init packet", extensions: ["dat"] }],
@@ -283,7 +271,7 @@
       if (!ok) return;
 
       let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
-      if (datPath !== undefined) {
+      if (dfuPackageKind === "bin" && datPath !== undefined) {
         input = {
           firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin", sessionDir),
           initDatPath: await stagePickedFileForRust(datPath, "init.dat", sessionDir),
@@ -467,6 +455,13 @@
           Disconnect
         </button>
         {#if canDfu}
+          <label class="flex items-center gap-2 text-sm">
+            <span>Package</span>
+            <select class="select select-sm preset-tonal-surface" bind:value={dfuPackageKind} disabled={dfuBusy || Boolean($connectingAddress)}>
+              <option value="zip">DFU ZIP</option>
+              <option value="bin">BIN + init DAT</option>
+            </select>
+          </label>
           <button
             class="btn btn-sm preset-tonal-surface"
             type="button"

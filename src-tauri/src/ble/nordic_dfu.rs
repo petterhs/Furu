@@ -168,6 +168,28 @@ async fn expect_receipt<T: Transport>(
     }
 }
 
+/// InfiniTime suppresses the receipt when the final packet lands exactly on a
+/// PRN boundary and sends the opcode-3 completion response instead.
+async fn expect_final_receipt_or_completion<T: Transport>(
+    t: &mut T,
+    sent: usize,
+    cancel: &AtomicBool,
+) -> Result<bool, String> {
+    let data = receive_before(t, Instant::now() + CP_TIMEOUT, cancel).await?;
+    match data.as_slice() {
+        [0x11, a, b, c, d] => {
+            let received = u32::from_le_bytes([*a, *b, *c, *d]) as usize;
+            if received != sent {
+                return Err(format!("DFU: byte count mismatch (sent {sent}, device reported {received})"));
+            }
+            Ok(false)
+        }
+        [0x10, opcode, status] if *opcode == 0x03 && *status == 1 => Ok(true),
+        [0x10, opcode, status] => Err(format!("DFU: unexpected response while transferring (opcode 0x{opcode:02x}, status 0x{status:02x})")),
+        _ => Err("DFU: malformed packet receipt".into()),
+    }
+}
+
 async fn transfer<T: Transport>(
     t: &mut T,
     image: DfuImage,
@@ -191,6 +213,7 @@ async fn transfer<T: Transport>(
     t.control(&[0x03], true).await?;
     let total = image.firmware.len();
     let mut sent = 0;
+    let mut completion_received = false;
     for (index, chunk) in image.firmware.chunks(PACKET_SIZE).enumerate() {
         check_cancel(cancel)?;
         t.packet(chunk).await?;
@@ -199,10 +222,16 @@ async fn transfer<T: Transport>(
             progress("transfer", (10 + sent * 85 / total) as u8)?;
         }
         if (index + 1) % PRN == 0 {
-            expect_receipt(t, sent, cancel).await?;
+            if sent == total {
+                completion_received = expect_final_receipt_or_completion(t, sent, cancel).await?;
+            } else {
+                expect_receipt(t, sent, cancel).await?;
+            }
         }
     }
-    expect_response(t, 0x03, cancel).await?;
+    if !completion_received {
+        expect_response(t, 0x03, cancel).await?;
+    }
     check_cancel(cancel)?;
     progress("validating", 96)?;
     t.control(&[0x04], true).await?;
@@ -347,7 +376,14 @@ mod tests {
     #[tokio::test]
     async fn final_prn_boundary_receipt_is_validated() {
         let mut valid = mock(1);
-        valid.replies[2] = vec![0x11, 200, 0, 0, 0];
+        valid.replies = vec![
+            vec![0x10, 1, 1],
+            vec![0x10, 2, 1],
+            vec![0x11, 200, 0, 0, 0],
+            vec![0x10, 3, 1],
+            vec![0x10, 4, 1],
+        ]
+        .into();
         transfer(
             &mut valid,
             DfuImage {
@@ -362,6 +398,7 @@ mod tests {
 
         let mut wrong = mock(1);
         wrong.replies[2] = vec![0x11, 199, 0, 0, 0];
+        wrong.replies.remove(3);
         let result = transfer(
             &mut wrong,
             DfuImage {
@@ -375,6 +412,29 @@ mod tests {
         assert!(result.unwrap_err().contains("byte count mismatch"));
         assert!(!wrong.writes.iter().any(|w| w.0 && w.1 == [4]));
         assert!(!wrong.writes.iter().any(|w| w.0 && w.1 == [5]));
+    }
+
+    #[tokio::test]
+    async fn exact_final_prn_boundary_accepts_completion_without_receipt() {
+        let mut device = mock(1);
+        device.replies = vec![
+            vec![0x10, 1, 1],
+            vec![0x10, 2, 1],
+            vec![0x10, 3, 1],
+            vec![0x10, 4, 1],
+        ]
+        .into();
+        transfer(
+            &mut device,
+            DfuImage {
+                firmware: vec![42; 200],
+                init_dat: vec![0; 14],
+            },
+            &AtomicBool::new(false),
+            |_, _| Ok(()),
+        )
+        .await
+        .unwrap();
     }
     #[tokio::test]
     async fn cancellation_before_activation_never_activates() {
