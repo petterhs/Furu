@@ -1,4 +1,5 @@
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use futures::StreamExt;
 use once_cell::sync::OnceCell;
@@ -66,16 +67,20 @@ pub fn check_permissions(ask_if_denied: bool) -> Result<bool, Error> {
 
 async fn handle_events() {
     let handler = get_handler().expect("failed to get handler");
-    let stream = handler
-        .get_event_stream()
-        .await
-        .expect("failed to get event stream");
-    stream
-        .for_each(|event| async {
-            handler
-                .handle_event(event)
-                .await
-                .expect("failed to handle event");
-        })
-        .await;
+    loop {
+        match handler.get_event_stream().await {
+            Ok(stream) => {
+                stream
+                    .for_each(|event| async {
+                        if let Err(error) = handler.handle_event(event).await {
+                            tracing::error!("failed to handle BLE event: {error}");
+                        }
+                    })
+                    .await;
+                tracing::warn!("BLE event stream ended; restarting");
+            }
+            Err(error) => tracing::error!("failed to get BLE event stream: {error}"),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }
