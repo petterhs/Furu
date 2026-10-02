@@ -57,6 +57,12 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
             Log.i("FuruBleGatt", "state address=${device.address} status=$status newState=$newState")
+            val activeGatt = this@Peripheral.gatt
+            if (gatt != null && activeGatt != null && gatt !== activeGatt) {
+                Log.w("FuruBleGatt", "ignoring callback from superseded GATT client")
+                gatt.close()
+                return
+            }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED && gatt != null) {
                 // gatt.requestMtu(517)
                 this@Peripheral.connected = true
@@ -191,6 +197,11 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
     @SuppressLint("MissingPermission")
     fun connect(invoke:Invoke) {
         println("connect android implementation called")
+        this.gatt?.close()
+        this.gatt = null
+        this.connected = false
+        this.services = listOf()
+        this.characteristics.clear()
         this.onConnectionStateChange = { success, error ->
             if(success){
                 invoke.resolve()
@@ -199,7 +210,7 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
             }
             this@Peripheral.onConnectionStateChange = null
         }
-        this.device.connectGatt(activity, false, this.callback)
+        this.gatt = this.device.connectGatt(activity, false, this.callback)
     }
 
     @SuppressLint("MissingPermission")
