@@ -3,7 +3,7 @@
 
 use super::registry;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_blec::{models::WriteType, Handler};
@@ -204,7 +204,7 @@ async fn transfer<T: Transport>(
     size[8..].copy_from_slice(&(image.firmware.len() as u32).to_le_bytes());
     t.packet(&size).await?;
     expect_response(t, 0x01, cancel).await?;
-    progress("init_packet", 5)?;
+    progress("init_packet", 0)?;
     t.control(&[0x02, 0x00], true).await?;
     // InfiniTime parses the complete legacy init packet in one write.
     t.packet(&image.init_dat).await?;
@@ -220,7 +220,7 @@ async fn transfer<T: Transport>(
         t.packet(chunk).await?;
         sent += chunk.len();
         if index % 8 == 0 || sent == total {
-            progress("transfer", (10 + sent * 85 / total) as u8)?;
+            progress("transfer", (sent * 100 / total) as u8)?;
         }
         if (index + 1) % PRN == 0 {
             if sent == total {
@@ -234,11 +234,11 @@ async fn transfer<T: Transport>(
         expect_response(t, 0x03, cancel).await?;
     }
     check_cancel(cancel)?;
-    progress("validating", 96)?;
+    progress("validating", 100)?;
     t.control(&[0x04], true).await?;
     expect_response(t, 0x04, cancel).await?;
     check_cancel(cancel)?;
-    progress("applying", 99)?;
+    progress("applying", 100)?;
     // The watch may disconnect to reboot immediately: do not await an ATT reply.
     t.control(&[0x05], false).await?;
     progress("activation_requested", 100)
@@ -249,8 +249,13 @@ pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Res
     let (tx, rx) = mpsc::channel(32);
     let overflow = std::sync::Arc::new(AtomicBool::new(false));
     let callback_overflow = overflow.clone();
+    let callback_notification_count = AtomicUsize::new(0);
     handler
         .subscribe(cp, Some(registry::NORDIC_DFU_SERVICE_UUID), move |data| {
+            let count = callback_notification_count.fetch_add(1, Ordering::Relaxed) + 1;
+            if count <= 16 {
+                eprintln!("[dfu] control notification {count}: {data:02x?}");
+            }
             if tx.try_send(data).is_err() {
                 callback_overflow.store(true, Ordering::SeqCst);
             }
