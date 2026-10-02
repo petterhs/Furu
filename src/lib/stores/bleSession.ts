@@ -85,6 +85,8 @@ let initialized = false;
 const connectionListeners = new Set<(state: boolean) => void>();
 
 let ctsSyncIntervalId: ReturnType<typeof setInterval> | null = null;
+let ctsSyncKey: string | null = null;
+let ctsWriteInFlight: Promise<void> | null = null;
 let batteryPollIntervalId: ReturnType<typeof setInterval> | null = null;
 let batteryReadInFlight = false;
 const BATTERY_POLL_INTERVAL_MS = 60_000;
@@ -275,18 +277,18 @@ async function applySessionProfileAfterConnect(
 }
 
 function reconcileCtsSyncTimer(): void {
+  const addr = get(connected) ? get(selectedAddress) : null;
+  const remembered = addr ? getRememberedByAddress(addr) : null;
+  const enabled = remembered?.currentTimeSyncEnabled && get(activeFeatureIds).includes(FeatureId.bleCurrentTime);
+  const minutes = enabled ? clampCtsSyncIntervalMinutes(remembered?.currentTimeSyncIntervalMinutes) : 0;
+  const key = addr && enabled ? `${addr.toLowerCase()}:${minutes}` : null;
+  if (key === ctsSyncKey) return;
+  ctsSyncKey = key;
   if (ctsSyncIntervalId !== null) {
     clearInterval(ctsSyncIntervalId);
     ctsSyncIntervalId = null;
   }
-  if (!get(connected)) return;
-  const addr = get(selectedAddress);
-  if (!addr) return;
-  const remembered = getRememberedByAddress(addr);
-  if (!remembered?.currentTimeSyncEnabled) return;
-  if (!get(activeFeatureIds).includes(FeatureId.bleCurrentTime)) return;
-
-  const minutes = clampCtsSyncIntervalMinutes(remembered.currentTimeSyncIntervalMinutes);
+  if (key === null) return;
   ctsSyncIntervalId = setInterval(() => {
     void sendCurrentTime();
   }, minutes * 60_000);
@@ -1026,12 +1028,22 @@ export async function disconnectAfterDfu(): Promise<void> {
 }
 
 export async function sendCurrentTime(): Promise<void> {
-  try {
-    await invoke("ble_poc_send_current_time");
-    pushLog("current time (CTS 0x2A2B) write sent");
-  } catch (error) {
-    pushLog(`CTS time write error: ${String(error)}`);
-  }
+  if (ctsWriteInFlight) return ctsWriteInFlight;
+  const operation = Promise.resolve()
+    .then(async () => {
+      if (isDfuSessionActive()) return;
+      try {
+        await invoke("ble_poc_send_current_time");
+        pushLog("current time (CTS 0x2A2B) write sent");
+      } catch (error) {
+        pushLog(`CTS time write error: ${String(error)}`);
+      }
+    })
+    .finally(() => {
+      if (ctsWriteInFlight === operation) ctsWriteInFlight = null;
+    });
+  ctsWriteInFlight = operation;
+  return operation;
 }
 
 export async function sendNotification(title: string, message: string): Promise<void> {
