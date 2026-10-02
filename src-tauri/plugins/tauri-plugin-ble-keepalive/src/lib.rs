@@ -1,20 +1,24 @@
-use tauri::{plugin::TauriPlugin, Runtime};
 #[cfg(target_os = "android")]
 use tauri::Manager;
+use tauri::{plugin::TauriPlugin, Runtime};
 
 #[cfg(target_os = "android")]
 const PLUGIN_IDENTIFIER: &str = "com.furu.blekeepalive";
 
 mod commands;
 
-pub use commands::{start_service, stop_service};
+pub use commands::{notify_disconnect, start_service, stop_service};
 
 #[cfg(target_os = "android")]
 pub(crate) struct BleKeepaliveHandle<R: Runtime>(pub tauri::plugin::PluginHandle<R>);
 
 pub fn init<R: Runtime>() -> TauriPlugin<R, ()> {
     tauri::plugin::Builder::<R, ()>::new("ble-keepalive")
-        .invoke_handler(tauri::generate_handler![commands::start_service, commands::stop_service])
+        .invoke_handler(tauri::generate_handler![
+            commands::start_service,
+            commands::stop_service,
+            commands::notify_disconnect
+        ])
         .setup(|app, api| {
             #[cfg(target_os = "android")]
             {

@@ -47,3 +47,5 @@ Run `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib` for package
 Furu reports activation requested, not a confirmed installation. Reconnect, check the version, and confirm the trial firmware on the watch. Repeat the development-device OTA and cancellation checks after protocol changes; an Android APK build and hardware transfer are separate from the desktop checks.
 
 Run the complete CI checks locally with `devenv --profile ci shell -- bash scripts/check.sh`. This profile omits the Android SDK; the normal shell still includes Android tooling.
+
+For connection drops, Android log capture, and an overnight phone/watch trace, see [connection diagnostics](docs/connection-diagnostics.md).

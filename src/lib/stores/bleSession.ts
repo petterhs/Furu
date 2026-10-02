@@ -126,13 +126,13 @@ function cancelAutoReconnectCycle(): void {
   autoReconnectAttempts = 0;
 }
 
-function scheduleAutoReconnect(address: string): void {
+function scheduleAutoReconnect(address: string): boolean {
   const trimmed = address.trim();
-  if (!trimmed) return;
+  if (!trimmed) return false;
   const dev = getRememberedByAddress(trimmed);
   if (!dev?.autoReconnect) {
     pushLog("BLE: auto-reconnect skipped (disabled in device settings)");
-    return;
+    return false;
   }
   if (autoReconnectTimer !== null) {
     clearTimeout(autoReconnectTimer);
@@ -144,6 +144,7 @@ function scheduleAutoReconnect(address: string): void {
   autoReconnectTimer = setTimeout(() => {
     void runAutoReconnectAttempt(trimmed);
   }, delayMs);
+  return true;
 }
 
 async function runAutoReconnectAttempt(address: string): Promise<void> {
@@ -155,12 +156,14 @@ async function runAutoReconnectAttempt(address: string): Promise<void> {
   const dev = getRememberedByAddress(address);
   if (!dev?.autoReconnect) {
     autoReconnectAttempts = 0;
+    void syncAndroidBleKeepalive(false);
     return;
   }
   const selected = get(selectedAddress);
   if (!selected || !bleAddressesEqual(selected, address)) {
     pushLog("BLE: auto-reconnect cancelled (selected device changed)");
     autoReconnectAttempts = 0;
+    void syncAndroidBleKeepalive(false);
     return;
   }
   const maxFailed = clampAutoReconnectMaxAttempts(dev.autoReconnectMaxAttempts);
@@ -168,13 +171,15 @@ async function runAutoReconnectAttempt(address: string): Promise<void> {
   if (maxFailed > 0 && autoReconnectAttempts > maxFailed) {
     pushLog(`BLE: auto-reconnect stopped after ${maxFailed} failed attempts (limit reached)`);
     autoReconnectAttempts = 0;
+    void syncAndroidBleKeepalive(false);
     return;
   }
   const attemptLabel =
     maxFailed > 0 ? `${autoReconnectAttempts}/${maxFailed}` : `${autoReconnectAttempts} (no limit)`;
-  pushLog(`BLE: auto-reconnect attempt ${attemptLabel} (direct, no scan)`);
+  const direct = autoReconnectAttempts % 2 === 1;
+  pushLog(`BLE: auto-reconnect attempt ${attemptLabel} (${direct ? "direct" : "scan"})`);
   try {
-    await connectTo(address, { isAutoReconnect: true, skipScan: true });
+    await connectTo(address, { isAutoReconnect: true, skipScan: direct });
   } catch (error) {
     pushLog(`BLE: auto-reconnect error: ${String(error)}`);
   }
@@ -672,18 +677,62 @@ function wireNotificationForwardingGateSync(): void {
 function pushLog(message: string): void {
   const line = `${new Date().toISOString().slice(11, 19)} ${message}`;
   logLines.update((lines) => [...lines.slice(-80), line]);
+  if (message.startsWith("BLE:") || message.startsWith("DFU")) console.info(`[Furu] ${line}`);
 }
 
-async function syncAndroidBleKeepalive(isConnected: boolean): Promise<void> {
-  try {
-    if (isConnected) {
-      await invoke("plugin:ble-keepalive|start_service");
-    } else {
-      await invoke("plugin:ble-keepalive|stop_service");
-    }
-  } catch (error) {
-    pushLog(`BLE keepalive (${isConnected ? "start" : "stop"}): ${String(error)}`);
+export function logBleDiagnostic(message: string): void {
+  pushLog(message);
+}
+
+function reportLinkClosed(source: string, callbackAddress?: string): void {
+  // The plugin sends both a disconnect callback and a connection-state update.
+  // Only the first transition should alert, update history and schedule reconnect.
+  if (!get(connected)) {
+    if (get(selectedAddress)) pushLog(`BLE: duplicate disconnect signal (${source})`);
+    return;
   }
+  const address = get(selectedAddress) ?? get(connectingAddress);
+  if (callbackAddress && address && !bleAddressesEqual(callbackAddress, address)) {
+    pushLog(`BLE: ignoring late disconnect callback for ${callbackAddress}; active=${address}`);
+    return;
+  }
+  const requested = userRequestedDisconnect;
+  const updating = isDfuSessionActive();
+  userRequestedDisconnect = false;
+  connected.set(false);
+  const detail = requested ? "disconnected (app requested)" : updating
+    ? "disconnected (firmware update)" : "disconnected (unexpected link loss)";
+  pushLog(`BLE: ${detail}; source=${source}; address=${address ?? "unknown"}`);
+  recordConnectionHistoryDisconnected(detail, address);
+  void syncNativeNotificationForwardingGates();
+  if (!requested && !updating && address) {
+    const name = getRememberedByAddress(address)?.name ?? "PineTime";
+    void invoke("plugin:ble-keepalive|notify_disconnect", { name }).catch((error) =>
+      pushLog(`BLE: disconnect notification failed: ${String(error)}`));
+    cancelAutoReconnectCycle();
+    void syncAndroidBleKeepalive(scheduleAutoReconnect(address), true);
+  } else {
+    cancelAutoReconnectCycle();
+    void syncAndroidBleKeepalive(false);
+  }
+  for (const listener of connectionListeners) listener(false);
+}
+
+let keepaliveQueue: Promise<void> = Promise.resolve();
+
+function syncAndroidBleKeepalive(keepRunning: boolean, reconnecting = false): Promise<void> {
+  keepaliveQueue = keepaliveQueue.then(async () => {
+    try {
+      if (keepRunning) {
+        await invoke("plugin:ble-keepalive|start_service", { reconnecting });
+      } else {
+        await invoke("plugin:ble-keepalive|stop_service");
+      }
+    } catch (error) {
+      pushLog(`BLE keepalive (${keepRunning ? "start" : "stop"}): ${String(error)}`);
+    }
+  });
+  return keepaliveQueue;
 }
 
 export async function refreshProfileState(): Promise<void> {
@@ -713,8 +762,12 @@ export async function initializeBleSession(): Promise<void> {
 
   const connectionChannel = new Channel<boolean>();
   connectionChannel.onmessage = (state) => {
-    const addressAtTransition = get(selectedAddress);
-    connected.set(state);
+    if (!state) {
+      reportLinkClosed("native connection-state channel");
+      return;
+    }
+    if (get(connected)) return;
+    connected.set(true);
     void syncNativeNotificationForwardingGates();
     if (state) {
       const src = pendingConnectSource;
@@ -727,20 +780,8 @@ export async function initializeBleSession(): Promise<void> {
             : "connected (native)";
       pushLog(`BLE: ${detail}`);
       recordConnectionHistoryConnected(detail);
-    } else {
-      const userReq = userRequestedDisconnect;
-      userRequestedDisconnect = false;
-      const detail = userReq ? "disconnected (app requested)" : "disconnected (unexpected link loss)";
-      pushLog(`BLE: ${detail}`);
-      recordConnectionHistoryDisconnected(detail, addressAtTransition);
-      if (!userReq && addressAtTransition) {
-        cancelAutoReconnectCycle();
-        scheduleAutoReconnect(addressAtTransition);
-      } else {
-        cancelAutoReconnectCycle();
-      }
     }
-    void syncAndroidBleKeepalive(state);
+    void syncAndroidBleKeepalive(true);
     for (const listener of connectionListeners) {
       listener(state);
     }
@@ -818,18 +859,25 @@ export async function endScan(): Promise<void> {
 }
 
 const CONNECT_SCAN_TIMEOUT_MS = 15_000;
-const CONNECT_ATTEMPT_TIMEOUT_MS = 12_000;
-const DFU_DISCONNECT_TIMEOUT_MS = 5_000;
+// The native plugin makes up to three bounded connection attempts (5 s for
+// connect and 5 s for its event each, plus retry delays).
+const CONNECT_ATTEMPT_TIMEOUT_MS = 35_000;
+const DFU_DISCONNECT_TIMEOUT_MS = 8_000;
 
 async function connectWithTimeout(address: string, timeoutMs: number): Promise<void> {
-  await Promise.race([
-    connect(address, () => pushLog("BLE: peripheral disconnect callback (link closed from device side)"), false),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`connect timeout after ${Math.round(timeoutMs / 1000)}s`));
-      }, timeoutMs);
-    }),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      connect(address, () => reportLinkClosed("native peripheral callback", address), false),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`connect timeout after ${Math.round(timeoutMs / 1000)}s`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
 }
 
 /**
@@ -978,6 +1026,7 @@ export async function disconnectDevice(): Promise<void> {
       // disconnected, while the app's connection-state channel remains stale.
       connected.set(false);
       selectedAddress.set(null);
+      void syncAndroidBleKeepalive(false);
       userRequestedDisconnect = false;
       pendingConnectSource = null;
       cancelAutoReconnectCycle();
@@ -998,6 +1047,7 @@ export async function disconnectAfterDfu(): Promise<void> {
     connected.set(false);
     selectedAddress.set(null);
     cancelAutoReconnectCycle();
+    void syncAndroidBleKeepalive(false);
     return;
   }
 
@@ -1020,6 +1070,7 @@ export async function disconnectAfterDfu(): Promise<void> {
     // the peripheral-disconnected callback or the native plugin's wait hangs.
     connected.set(false);
     selectedAddress.set(null);
+    void syncAndroidBleKeepalive(false);
     pendingConnectSource = null;
     userRequestedDisconnect = false;
     cancelAutoReconnectCycle();
