@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the notify_disconnect command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-notify-disconnect",
+          "markdownDescription": "Enables the notify_disconnect command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the notify_disconnect command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-notify-disconnect",
+          "markdownDescription": "Denies the notify_disconnect command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_service command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-service",
@@ -319,10 +331,10 @@
           "markdownDescription": "Denies the stop_service command without any pre-configured scope."
         },
         {
-          "description": "Foreground service controls for keeping the BLE companion active in the Android background.\n#### This default permission set includes:\n\n- `allow-start-service`\n- `allow-stop-service`",
+          "description": "Foreground service controls for keeping the BLE companion active in the Android background.\n#### This default permission set includes:\n\n- `allow-start-service`\n- `allow-stop-service`\n- `allow-notify-disconnect`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Foreground service controls for keeping the BLE companion active in the Android background.\n#### This default permission set includes:\n\n- `allow-start-service`\n- `allow-stop-service`"
+          "markdownDescription": "Foreground service controls for keeping the BLE companion active in the Android background.\n#### This default permission set includes:\n\n- `allow-start-service`\n- `allow-stop-service`\n- `allow-notify-disconnect`"
         }
       ]
     }

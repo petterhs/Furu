@@ -20,6 +20,7 @@ const PRN: usize = 10;
 const CP_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 const UNSUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(2);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 static DFU_CANCEL: AtomicBool = AtomicBool::new(false);
 static DFU_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -66,8 +67,9 @@ struct BleTransport<'a> {
 
 impl Transport for BleTransport<'_> {
     async fn control(&mut self, data: &[u8], with_response: bool) -> Result<(), String> {
-        self.handler
-            .send_data(
+        tokio::time::timeout(
+            WRITE_TIMEOUT,
+            self.handler.send_data(
                 registry::NORDIC_DFU_CONTROL_POINT_CHAR_UUID,
                 Some(registry::NORDIC_DFU_SERVICE_UUID),
                 data,
@@ -76,20 +78,25 @@ impl Transport for BleTransport<'_> {
                 } else {
                     WriteType::WithoutResponse
                 },
-            )
-            .await
-            .map_err(|e| e.to_string())
+            ),
+        )
+        .await
+        .map_err(|_| "DFU: timed out writing control point".to_string())?
+        .map_err(|e| e.to_string())
     }
     async fn packet(&mut self, data: &[u8]) -> Result<(), String> {
-        self.handler
-            .send_data(
+        tokio::time::timeout(
+            WRITE_TIMEOUT,
+            self.handler.send_data(
                 registry::NORDIC_DFU_PACKET_CHAR_UUID,
                 Some(registry::NORDIC_DFU_SERVICE_UUID),
                 data,
                 WriteType::WithoutResponse,
-            )
-            .await
-            .map_err(|e| e.to_string())
+            ),
+        )
+        .await
+        .map_err(|_| "DFU: timed out writing packet".to_string())?
+        .map_err(|e| e.to_string())
     }
     async fn receive(&mut self) -> Result<Vec<u8>, String> {
         if self.overflow.load(Ordering::SeqCst) {

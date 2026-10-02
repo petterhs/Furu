@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
@@ -19,6 +20,7 @@ class BleKeepalivePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun startService(invoke: Invoke) {
         try {
+            val reconnecting = invoke.parseArgs(ServiceArgs::class.java).reconnecting
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val granted = ContextCompat.checkSelfPermission(
                     activity,
@@ -36,7 +38,7 @@ class BleKeepalivePlugin(private val activity: Activity) : Plugin(activity) {
                     return
                 }
             }
-            BleConnectionForegroundService.start(activity.applicationContext)
+            BleConnectionForegroundService.start(activity.applicationContext, reconnecting)
             invoke.resolve()
         } catch (ex: Exception) {
             invoke.reject(ex.message ?: "startService failed")
@@ -51,5 +53,25 @@ class BleKeepalivePlugin(private val activity: Activity) : Plugin(activity) {
         } catch (ex: Exception) {
             invoke.reject(ex.message ?: "stopService failed")
         }
+    }
+
+    @Command
+    fun notifyDisconnect(invoke: Invoke) {
+        try {
+            val name = invoke.parseArgs(DisconnectArgs::class.java).name
+            Log.w("FuruBle", "Unexpected BLE disconnect: $name")
+            BleConnectionForegroundService.notifyDisconnect(activity.applicationContext, name)
+            invoke.resolve()
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "notifyDisconnect failed")
+        }
+    }
+
+    class DisconnectArgs {
+        var name: String = "PineTime"
+    }
+
+    class ServiceArgs {
+        var reconnecting: Boolean = false
     }
 }

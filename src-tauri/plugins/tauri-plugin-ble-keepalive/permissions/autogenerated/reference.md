@@ -6,6 +6,7 @@ Foreground service controls for keeping the BLE companion active in the Android 
 
 - `allow-start-service`
 - `allow-stop-service`
+- `allow-notify-disconnect`
 
 ## Permission Table
 
@@ -15,6 +16,32 @@ Foreground service controls for keeping the BLE companion active in the Android 
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`ble-keepalive:allow-notify-disconnect`
+
+</td>
+<td>
+
+Enables the notify_disconnect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ble-keepalive:deny-notify-disconnect`
+
+</td>
+<td>
+
+Denies the notify_disconnect command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
