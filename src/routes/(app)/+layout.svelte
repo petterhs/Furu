@@ -12,9 +12,11 @@
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
   import { invoke } from "@tauri-apps/api/core";
+  import { getVersion } from "@tauri-apps/api/app";
   import { dfuCancelable, dfuSession, dismissDfuSession, requestDfuCancel } from "$lib/stores/dfuSession";
 
   let { children }: { children: Snippet } = $props();
+  let appVersion = $state<string | null>(null);
 
   const pathname = $derived(page.url.pathname);
   const showBackButton = $derived(pathname !== "/home");
@@ -51,6 +53,7 @@
   ];
 
   onMount(() => {
+    void getVersion().then((version) => { appVersion = version; }).catch(() => {});
     void initializeBleSession();
     void hydrateAppSettings();
     void hydrateNotificationFilters();
@@ -79,7 +82,11 @@
         <div class="flex items-center gap-2">
           <img src="/furu-logo.png" alt="Furu icon" class="h-10 w-10 rounded-md" />
           <h1 class="m-0 text-base font-semibold">Furu</h1>
+          {#if appVersion}<span class="font-mono text-xs text-[color:var(--color-surface-700-300)]">v{appVersion}</span>{/if}
         </div>
+      {/if}
+      {#if showBackButton && appVersion}
+        <span class="ml-auto font-mono text-xs text-[color:var(--color-surface-700-300)]">Furu v{appVersion}</span>
       {/if}
     </div>
     {#if $dfuSession}
