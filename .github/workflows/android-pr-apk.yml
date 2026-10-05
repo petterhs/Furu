@@ -27,6 +27,8 @@ jobs:
         with:
           targets: aarch64-linux-android
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android components
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;26.1.10909125'
       - run: pnpm install --frozen-lockfile
