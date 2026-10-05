@@ -48,4 +48,12 @@ Furu reports activation requested, not a confirmed installation. Reconnect, chec
 
 Run the complete CI checks locally with `devenv --profile ci shell -- bash scripts/check.sh`. This profile omits the Android SDK; the normal shell still includes Android tooling.
 
+For Android development, connect one phone by USB with ADB enabled, enter
+`devenv shell`, and run `pnpm tauri:dev:android`. The script forwards the Vite
+page and hot-reload ports through `adb reverse`; Furu Dev therefore works even
+when Wi-Fi or Tailscale DNS changes. USB forwarding must be re-established
+after disconnecting the cable or rebooting, by rerunning the command. The
+installed **Furu Dev** app needs the dev server running; for an offline build,
+install an APK instead.
+
 For connection drops, Android log capture, and an overnight phone/watch trace, see [connection diagnostics](docs/connection-diagnostics.md).

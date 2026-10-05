@@ -10,7 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "tauri:dev:android": "TAURI_DEV_HOST=\"${TAURI_DEV_HOST:-no-kon-lx-016}\" tauri android dev --config src-tauri/tauri.local.conf.json"
+    "tauri:dev:android": "bash scripts/android-dev-usb.sh"
   },
   "license": "MIT",
   "dependencies": {
