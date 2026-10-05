@@ -39,6 +39,7 @@
     disconnectDevice,
     disconnectAfterDfu,
     heartRateBpm,
+    logBleDiagnostic,
     refreshDeviceInformationNow,
     selectedAddress,
     stepCount,
@@ -228,6 +229,8 @@
     progressStart: number,
     progressEnd: number,
   ): Promise<string> {
+    const stagingStartedAt = performance.now();
+    logBleDiagnostic(`DFU: opening selected ${destFileName} from Android picker`);
     const opened = await withDfuCancellation(openFile(sourcePath, { read: true }), signal);
     if (opened === DFU_ABORTED) throw new Error("DFU_CANCELLED");
     const file = opened;
@@ -241,6 +244,7 @@
           updateDfuProgress("staging", progressStart + Math.floor(fraction * (progressEnd - progressStart)));
         },
       });
+      logBleDiagnostic(`DFU: read ${bytes.length} bytes of ${destFileName} in ${Math.round(performance.now() - stagingStartedAt)} ms`);
     } finally {
       await file.close();
     }
@@ -248,6 +252,7 @@
     await mkdir(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true });
     const rel = `${sessionDir}/${destFileName}`;
     await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
+    logBleDiagnostic(`DFU: staged ${destFileName} in ${Math.round(performance.now() - stagingStartedAt)} ms`);
     if (signal.aborted) throw new Error("DFU_CANCELLED");
     updateDfuProgress("staging", progressEnd);
     return join(await appCacheDir(), rel);
@@ -303,6 +308,7 @@
       if (!ok || signal.aborted) return;
 
       const pickerStartedAt = performance.now();
+      logBleDiagnostic(`DFU: opening Android ${packageKind} picker`);
       const first = await withDfuCancellation(open({
         multiple: false,
         title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
@@ -310,9 +316,7 @@
           ? { name: "DFU ZIP", extensions: ["zip"] }
           : { name: "Firmware (.bin)", extensions: ["bin"] }],
       }), signal);
-      if (import.meta.env.DEV) {
-        console.info(`[DFU] Android package picker returned after ${Math.round(performance.now() - pickerStartedAt)} ms`);
-      }
+      logBleDiagnostic(`DFU: Android picker returned in ${Math.round(performance.now() - pickerStartedAt)} ms (${first === null ? "cancelled" : "selection"})`);
       if (first === DFU_ABORTED || first === null || signal.aborted) return;
       const path = Array.isArray(first) ? first[0] : first;
       if (!path) return;
@@ -343,6 +347,7 @@
 
       unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
         updateDfuProgress(e.payload.phase, e.payload.percent);
+        if (e.payload.phase === "applying" || e.payload.phase === "activation_requested") activationRequested = true;
       });
       if (signal.aborted) return;
       updateDfuProgress("starting", 0);
@@ -352,16 +357,17 @@
       keepResult = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      logBleDiagnostic(`DFU: error: ${message}`);
       if (signal.aborted || /cancel(?:led|ed)/i.test(message)) return;
       finishDfuSession("error", message);
       keepResult = true;
     } finally {
       unlisten?.();
-      if (sessionDir) {
-        await remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
-      }
       endDfuSession();
       if (activationRequested) await disconnectAfterDfu();
+      if (sessionDir) {
+        void remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
+      }
       if (!keepResult) clearDfuSession();
     }
   }

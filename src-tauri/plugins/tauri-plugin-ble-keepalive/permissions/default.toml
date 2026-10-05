@@ -5,4 +5,5 @@ description = "Foreground service controls for keeping the BLE companion active 
 permissions = [
   "allow-start-service",
   "allow-stop-service",
+  "allow-notify-disconnect",
 ]

@@ -22,7 +22,7 @@ class BleConnectionForegroundService : Service() {
             return START_NOT_STICKY
         }
         createChannel()
-        val notification = buildNotification()
+        val notification = buildNotification(intent.getBooleanExtra(EXTRA_RECONNECTING, false))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
@@ -56,7 +56,7 @@ class BleConnectionForegroundService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(reconnecting: Boolean): Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val pending = PendingIntent.getActivity(
             this,
@@ -67,7 +67,7 @@ class BleConnectionForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_furu_ble_notification)
             .setContentTitle(getString(R.string.furu_ble_notification_title))
-            .setContentText(getString(R.string.furu_ble_notification_text))
+            .setContentText(if (reconnecting) "Reconnecting to watch" else getString(R.string.furu_ble_notification_text))
             .setOngoing(true)
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -77,12 +77,16 @@ class BleConnectionForegroundService : Service() {
 
     companion object {
         const val ACTION_START = "com.furu.blekeepalive.action.START"
+        private const val EXTRA_RECONNECTING = "reconnecting"
         private const val CHANNEL_ID = "furu_ble_keepalive"
+        private const val ALERT_CHANNEL_ID = "furu_ble_disconnect"
         private const val NOTIFICATION_ID = 0x6675_7275
+        private const val ALERT_ID = 0x6675_7276
 
-        fun start(ctx: Context) {
+        fun start(ctx: Context, reconnecting: Boolean = false) {
             val intent = Intent(ctx, BleConnectionForegroundService::class.java).apply {
                 action = ACTION_START
+                putExtra(EXTRA_RECONNECTING, reconnecting)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ctx.startForegroundService(intent)
@@ -93,6 +97,27 @@ class BleConnectionForegroundService : Service() {
 
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, BleConnectionForegroundService::class.java))
+        }
+
+        fun notifyDisconnect(ctx: Context, name: String) {
+            val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(NotificationChannel(
+                    ALERT_CHANNEL_ID, "Watch connection alerts", NotificationManager.IMPORTANCE_DEFAULT,
+                ))
+            }
+            val launchIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+            val pending = PendingIntent.getActivity(
+                ctx, 1, launchIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            manager.notify(ALERT_ID, NotificationCompat.Builder(ctx, ALERT_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_furu_ble_notification)
+                .setContentTitle("Watch disconnected")
+                .setContentText("$name lost its Bluetooth connection")
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build())
         }
     }
 }
