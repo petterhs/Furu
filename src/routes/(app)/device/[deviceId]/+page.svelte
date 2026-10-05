@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import Battery from "@lucide/svelte/icons/battery";
   import Footprints from "@lucide/svelte/icons/footprints";
   import Heart from "@lucide/svelte/icons/heart";
@@ -13,6 +13,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { BaseDirectory, mkdir, open as openFile, remove, writeFile } from "@tauri-apps/plugin-fs";
   import { batteryHistoryByDevice, batteryHistoryHydrated } from "$lib/stores/batteryHistory";
+  import { appSettings } from "$lib/stores/appSettings";
   import {
     connectionHistoryByDevice,
     connectionHistoryHydrated,
@@ -207,6 +208,36 @@
 
   const DFU_STAGING_DIR = "dfu-import";
 
+  type FirmwareRelease = {
+    id: number;
+    tagName: string;
+    notes: string;
+    htmlUrl: string;
+    publishedAt: string | null;
+    prerelease: boolean;
+    size: number;
+  };
+  let firmwareReleases = $state<FirmwareRelease[]>([]);
+  let firmwareCatalogLoading = $state(false);
+  let firmwareCatalogError = $state<string | null>(null);
+  const visibleFirmwareReleases = $derived(
+    firmwareReleases.filter((release) => !release.prerelease || $appSettings.firmwareDevelopmentChannel).slice(0, 5),
+  );
+
+  async function refreshFirmwareReleases(): Promise<void> {
+    firmwareCatalogLoading = true;
+    firmwareCatalogError = null;
+    try {
+      firmwareReleases = await invoke<FirmwareRelease[]>("firmware_list_releases");
+    } catch (error) {
+      firmwareCatalogError = String(error);
+    } finally {
+      firmwareCatalogLoading = false;
+    }
+  }
+
+  onMount(() => { void refreshFirmwareReleases(); });
+
   /** A cache-directory suffix only needs to be unique; WebViews may lack crypto.randomUUID(). */
   function newDfuSessionId(): string {
     const bytes = new Uint8Array(16);
@@ -262,6 +293,7 @@
     const map: Record<string, string> = {
       selecting_package: "Choose a firmware package",
       staging: "Copying selected files into app storage",
+      downloading: "Downloading and checking release package",
       starting: "Starting",
       init_packet: "Init packet",
       priming: "Priming",
@@ -287,7 +319,7 @@
 
   onDestroy(() => finishDfuConfirmation(false));
 
-  async function onDfuStart(packageKind: "zip" | "bin"): Promise<void> {
+  async function onDfuStart(packageKind: "zip" | "bin", release: FirmwareRelease | null = null): Promise<void> {
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
@@ -307,22 +339,31 @@
       const ok = await requestDfuConfirmation(batteryLine);
       if (!ok || signal.aborted) return;
 
-      const pickerStartedAt = performance.now();
-      logBleDiagnostic(`DFU: opening Android ${packageKind} picker`);
-      const first = await withDfuCancellation(open({
-        multiple: false,
-        title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
-        filters: [packageKind === "zip"
-          ? { name: "DFU ZIP", extensions: ["zip"] }
-          : { name: "Firmware (.bin)", extensions: ["bin"] }],
-      }), signal);
-      logBleDiagnostic(`DFU: Android picker returned in ${Math.round(performance.now() - pickerStartedAt)} ms (${first === null ? "cancelled" : "selection"})`);
-      if (first === DFU_ABORTED || first === null || signal.aborted) return;
-      const path = Array.isArray(first) ? first[0] : first;
-      if (!path) return;
+      let path: string;
+      if (release) {
+        updateDfuProgress("downloading", 0);
+        logBleDiagnostic(`DFU: downloading Kongle ${release.tagName} from GitHub Releases`);
+        const download = await withDfuCancellation(invoke<string>("firmware_download_release", { releaseId: release.id }), signal);
+        if (download === DFU_ABORTED || signal.aborted) return;
+        path = download;
+      } else {
+        const pickerStartedAt = performance.now();
+        logBleDiagnostic(`DFU: opening Android ${packageKind} picker`);
+        const first = await withDfuCancellation(open({
+          multiple: false,
+          title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
+          filters: [packageKind === "zip"
+            ? { name: "DFU ZIP", extensions: ["zip"] }
+            : { name: "Firmware (.bin)", extensions: ["bin"] }],
+        }), signal);
+        logBleDiagnostic(`DFU: Android picker returned in ${Math.round(performance.now() - pickerStartedAt)} ms (${first === null ? "cancelled" : "selection"})`);
+        if (first === DFU_ABORTED || first === null || signal.aborted) return;
+        path = Array.isArray(first) ? first[0] : first;
+        if (!path) return;
+      }
 
       let datPath: string | undefined;
-      if (packageKind === "bin") {
+      if (packageKind === "bin" && !release) {
         const datPick = await withDfuCancellation(open({
           multiple: false,
           title: "Select init packet (.dat)",
@@ -334,8 +375,10 @@
       }
 
       let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
-      updateDfuProgress("staging", 0);
-      if (packageKind === "bin" && datPath !== undefined) {
+      if (!release) updateDfuProgress("staging", 0);
+      if (release) {
+        input = { zipPath: path };
+      } else if (packageKind === "bin" && datPath !== undefined) {
         input = {
           firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin", sessionDir, signal, 0, 45),
           initDatPath: await stagePickedFileForRust(datPath, "init.dat", sessionDir, signal, 45, 50),
@@ -367,6 +410,9 @@
       if (activationRequested) await disconnectAfterDfu();
       if (sessionDir) {
         void remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
+      }
+      if (release) {
+        void remove(`${DFU_STAGING_DIR}/release-${release.id}.zip`, { baseDir: BaseDirectory.AppCache }).catch(() => {});
       }
       if (!keepResult) clearDfuSession();
     }
@@ -550,7 +596,31 @@
       {#if isCurrentDevice && canDfu}
         <div class="border-t border-[color:var(--color-surface-200-800)] pt-4">
           <h3 class="m-0 text-sm font-semibold">Firmware update</h3>
-          <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Choose a package format. Review the safety check first, then select your firmware in Android’s file picker.</p>
+          <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Install a published Kongle build or choose a local package. Each update still requires confirmation before flashing.</p>
+          <div class="mt-3 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <p class="m-0 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Kongle releases</p>
+              <button class="btn btn-xs preset-tonal-surface" type="button" disabled={firmwareCatalogLoading} onclick={() => void refreshFirmwareReleases()}>{firmwareCatalogLoading ? "Checking…" : "Refresh"}</button>
+            </div>
+            {#if firmwareCatalogError}
+              <p class="m-0 text-sm text-[color:var(--color-error-700-300)]" role="alert">Could not check releases: {firmwareCatalogError}</p>
+            {:else if !firmwareCatalogLoading && visibleFirmwareReleases.length === 0}
+              <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">No published builds in this channel yet. Development builds can be enabled in Settings.</p>
+            {/if}
+            {#each visibleFirmwareReleases as release (release.id)}
+              <div class="rounded-md border border-[color:var(--color-surface-200-800)] p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p class="m-0 text-sm font-semibold">Kongle {release.tagName} {release.prerelease ? "(development)" : ""}</p>
+                    {#if release.publishedAt}<p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">{new Date(release.publishedAt).toLocaleDateString()}</p>{/if}
+                  </div>
+                  <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("zip", release)}>Install…</button>
+                </div>
+                {#if release.notes}<details class="mt-2 text-sm"><summary class="cursor-pointer">Changelog</summary><pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{release.notes}</pre></details>{/if}
+              </div>
+            {/each}
+          </div>
+          <p class="m-0 mt-3 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Local package</p>
           <div class="mt-3 grid gap-2 sm:grid-cols-2">
             <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("zip")}>
               {dfuBusy ? "Update in progress…" : "Choose DFU ZIP…"}
@@ -573,7 +643,7 @@
             {friendlyDfuPhase(dfuStatus.phase) || "…"}
             <span class="tabular-nums text-[color:var(--color-surface-700-300)]">({dfuStatus.percent}%)</span>
           </p>
-          {#if dfuStatus.phase !== "selecting_package"}
+          {#if dfuStatus.phase !== "selecting_package" && dfuStatus.phase !== "downloading"}
             <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuStatus.percent}></progress>
           {/if}
           <p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">
@@ -581,7 +651,7 @@
             match. Transfer speed is limited by Bluetooth — stay close. Cancel is best-effort and may take a few seconds.
           </p>
         {:else if dfuStatus.outcome === "success"}
-          <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Firmware validated and activation requested. Reconnect and check the firmware version, then confirm the trial firmware on the watch. Installation has not been verified by Furu.</p>
+          <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Firmware validated and activation requested. Reconnect and check the firmware version. Kongle trial firmware remains unconfirmed and can revert on reset; Furu has not verified installation.</p>
         {:else if dfuStatus.error}
           <div class="min-w-0 space-y-2 text-sm text-[color:var(--color-error-700-300)]" role="alert">
             <p class="m-0 font-medium">Firmware update failed.</p>

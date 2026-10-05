@@ -2,6 +2,7 @@ import { load } from "@tauri-apps/plugin-store";
 
 export type AppSettings = {
   notificationForwardingEnabled: boolean;
+  firmwareDevelopmentChannel: boolean;
 };
 
 const STORE_FILE = "app-settings.json";
@@ -13,6 +14,7 @@ async function getStore() {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   notificationForwardingEnabled: true,
+  firmwareDevelopmentChannel: false,
 };
 
 export async function readAppSettings(): Promise<AppSettings | null> {

@@ -1,4 +1,5 @@
 mod ble;
+mod firmware_releases;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -39,6 +40,8 @@ pub fn run() {
             ble::commands::ble_read_device_information,
             ble::commands::ble_dfu_flash_package,
             ble::commands::ble_dfu_cancel,
+            firmware_releases::firmware_list_releases,
+            firmware_releases::firmware_download_release,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

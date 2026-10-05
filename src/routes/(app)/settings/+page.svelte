@@ -25,6 +25,26 @@
       </Switch.Control>
     </Switch>
   </article>
+  <article class="card preset-tonal-surface border border-[color:var(--color-surface-200-800)] p-4">
+    <h3 class="m-0 text-sm font-semibold">Firmware channel</h3>
+    <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
+      Stable Kongle releases are shown by default. Enable development builds to see release candidates and deliberately published PR previews. These are trial images and may have hardware bugs.
+    </p>
+    <Switch
+      class="mt-4 flex w-full items-center justify-between gap-4"
+      checked={$appSettings.firmwareDevelopmentChannel}
+      onCheckedChange={({ checked }) => {
+        void patchAppSettings((draft) => {
+          draft.firmwareDevelopmentChannel = checked;
+        });
+      }}
+    >
+      <Switch.Label class="text-sm">Show development firmware</Switch.Label>
+      <Switch.Control class="preset-filled-primary-500">
+        <Switch.Thumb />
+      </Switch.Control>
+    </Switch>
+  </article>
   <a
     class="card preset-tonal-surface block border border-[color:var(--color-surface-200-800)] p-4 no-underline text-inherit outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--color-primary-500)]"
     href="/settings/device-profiles"
