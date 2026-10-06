@@ -20,6 +20,7 @@
       }}
     >
       <Switch.Label class="text-sm">Global notification forwarding</Switch.Label>
+      <Switch.HiddenInput />
       <Switch.Control class="preset-filled-primary-500">
         <Switch.Thumb />
       </Switch.Control>
@@ -40,6 +41,7 @@
       }}
     >
       <Switch.Label class="text-sm">Show development firmware</Switch.Label>
+      <Switch.HiddenInput />
       <Switch.Control class="preset-filled-primary-500">
         <Switch.Thumb />
       </Switch.Control>
