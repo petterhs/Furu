@@ -86,6 +86,8 @@ in
     [
       pkg-config
       cargo-tauri
+      git-cliff
+      actionlint
       gobject-introspection
     ]
     ++ tauriLibs;

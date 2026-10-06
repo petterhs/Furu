@@ -12,6 +12,7 @@ export const appSettingsHydrated = writable(false);
 function normalizeAppSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
   return {
     notificationForwardingEnabled: input?.notificationForwardingEnabled ?? true,
+    firmwareDevelopmentChannel: input?.firmwareDevelopmentChannel ?? false,
   };
 }
 

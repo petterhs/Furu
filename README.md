@@ -49,3 +49,5 @@ Furu reports activation requested, not a confirmed installation. Reconnect, chec
 Run the complete CI checks locally with `devenv --profile ci shell -- bash scripts/check.sh`. This profile omits the Android SDK; the normal shell still includes Android tooling.
 
 For connection drops, Android log capture, and an overnight phone/watch trace, see [connection diagnostics](docs/connection-diagnostics.md).
+
+CI debug APKs, signed tagged releases, changelogs, and the in-app Kongle firmware feed are described in [Android builds and Kongle firmware feed](docs/releases.md).

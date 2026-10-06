@@ -32,6 +32,7 @@
   function dfuPhaseLabel(phase: string, percent: number): string {
     if (phase === "selecting_package") return "Choose a firmware package in the Android file picker.";
     if (phase === "staging") return "Copying the selected file into app storage.";
+    if (phase === "downloading") return "Downloading and checking the Kongle release package.";
     return `${phase.replaceAll("_", " ")} (${percent}%)`;
   }
 
@@ -99,9 +100,9 @@
           {#if $dfuSession.outcome === "running"}
             <p class="m-0">
               {dfuPhaseLabel($dfuSession.phase, $dfuSession.percent)}
-              {#if $dfuSession.phase === "selecting_package"}Cancel if the picker does not open.{:else}Keep Furu open and stay near the watch.{/if}
+              {#if $dfuSession.phase === "selecting_package"}Cancel if the picker does not open.{:else if $dfuSession.phase === "downloading"}Keep Furu open until the download finishes.{:else}Keep Furu open and stay near the watch.{/if}
             </p>
-            {#if $dfuSession.phase !== "selecting_package"}
+            {#if $dfuSession.phase !== "selecting_package" && $dfuSession.phase !== "downloading"}
               <progress class="h-1.5 w-full accent-[color:var(--color-primary-500)]" max={100} value={$dfuSession.percent}></progress>
             {/if}
           {:else if $dfuSession.outcome === "success"}

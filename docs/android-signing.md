@@ -50,7 +50,7 @@ pnpm tauri android build --target aarch64
 Expected outputs:
 
 - APK: `src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk`
-- AAB: `src-tauri/gen/android/app/build/outputs/bundle/**/release/*.aab`
+- AAB: `src-tauri/gen/android/app/build/outputs/bundle/**/*.aab`
 
 Notes:
 
@@ -90,7 +90,7 @@ base64 -w 0 furu-upload.keystore
 ## 5) First-run checklist
 
 - Confirm all four secrets are set.
-- Trigger the RC workflow manually.
+- Trigger the Android builds and releases workflow manually.
 - Verify uploaded artifacts include both signed APK and AAB.
 - Install the APK on a device to validate signing/install path.
 

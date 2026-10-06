@@ -112,6 +112,7 @@
         }}
       >
         <Switch.Label class="text-sm">Notifications enabled</Switch.Label>
+        <Switch.HiddenInput />
         <Switch.Control class="preset-filled-primary-500">
           <Switch.Thumb />
         </Switch.Control>
@@ -127,6 +128,7 @@
         }}
       >
         <Switch.Label class="text-sm">Auto-reconnect after unexpected disconnect</Switch.Label>
+        <Switch.HiddenInput />
         <Switch.Control class="preset-filled-primary-500">
           <Switch.Thumb />
         </Switch.Control>
@@ -187,6 +189,7 @@
         }}
       >
         <Switch.Label class="text-sm">Replay missed phone notifications after auto-reconnect</Switch.Label>
+        <Switch.HiddenInput />
         <Switch.Control class="preset-filled-primary-500">
           <Switch.Thumb />
         </Switch.Control>
@@ -223,6 +226,7 @@
             }}
           >
             <Switch.Label class="text-sm">Automatic time sync</Switch.Label>
+            <Switch.HiddenInput />
             <Switch.Control class="preset-filled-primary-500">
               <Switch.Thumb />
             </Switch.Control>
@@ -262,6 +266,7 @@
             }}
           >
             <Switch.Label class="text-sm">Enable heart rate logging</Switch.Label>
+            <Switch.HiddenInput />
             <Switch.Control class="preset-filled-primary-500">
               <Switch.Thumb />
             </Switch.Control>
