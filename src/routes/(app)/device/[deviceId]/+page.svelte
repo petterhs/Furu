@@ -605,7 +605,13 @@
             {#if firmwareCatalogError}
               <p class="m-0 text-sm text-[color:var(--color-error-700-300)]" role="alert">Could not check releases: {firmwareCatalogError}</p>
             {:else if !firmwareCatalogLoading && visibleFirmwareReleases.length === 0}
-              <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">No published builds in this channel yet. Development builds can be enabled in Settings.</p>
+              <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
+                {#if $appSettings.firmwareDevelopmentChannel}
+                  No Kongle previews have been published yet. PR artifacts stay in GitHub Actions until a development release is tagged.
+                {:else}
+                  No stable Kongle releases yet. Enable development firmware in Settings to see published previews.
+                {/if}
+              </p>
             {/if}
             {#each visibleFirmwareReleases as release (release.id)}
               <div class="rounded-md border border-[color:var(--color-surface-200-800)] p-3">
