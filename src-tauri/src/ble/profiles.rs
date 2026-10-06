@@ -57,7 +57,7 @@ impl ProfileId {
             Self::InfiniTime => {
                 "InfiniTime-oriented GATT features (CTS, ANS, DFU, …); name rules can select this profile."
             }
-            Self::Kongle => "Kongle firmware; CTS only until more services are documented.",
+            Self::Kongle => "Kongle firmware; current time and firmware revision.",
         }
     }
 }
@@ -97,6 +97,6 @@ pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
             FeatureId::InfiniTimeDfu,
             FeatureId::InfiniTimeCompanionUart,
         ],
-        ProfileId::Kongle => &[FeatureId::BleCurrentTime],
+        ProfileId::Kongle => &[FeatureId::BleDeviceInformation, FeatureId::BleCurrentTime],
     }
 }

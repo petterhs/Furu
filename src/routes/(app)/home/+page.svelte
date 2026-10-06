@@ -10,6 +10,7 @@
     connectTo,
     connected,
     connectingAddress,
+    deviceInformation,
     heartRateBpm,
     selectedAddress,
     stepCount,
@@ -40,6 +41,9 @@
           <div class="p-4">
             <div class="font-bold text-[color:var(--color-primary-700-300)]">{device.name}</div>
             <p class="m-0 mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">{device.address}</p>
+            {#if isConnectedDevice(device.address) && $deviceInformation?.firmwareRevision?.trim()}
+              <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">Firmware v{$deviceInformation.firmwareRevision.trim()}</p>
+            {/if}
             {#if isConnectedDevice(device.address) && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
               <div class="mt-2 flex flex-col gap-1 text-sm text-[color:var(--color-surface-900-100)]">
                 {#if $batteryPercent !== null}

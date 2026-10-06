@@ -401,6 +401,9 @@
     {#if known}
       <p class="m-0"><strong>{known.name}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
+      {#if isCurrentDevice && $deviceInformation?.firmwareRevision?.trim()}
+        <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Firmware v{$deviceInformation.firmwareRevision.trim()}</p>
+      {/if}
       {#if isCurrentDevice && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
         <div class="mt-2 flex flex-col gap-1 text-sm">
           {#if $batteryPercent !== null}

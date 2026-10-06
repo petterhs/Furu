@@ -52,9 +52,9 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
     {
       id: ProfileId.kongle,
       label: "Kongle",
-      description: "Kongle firmware; default is CTS only — extend features here as hardware supports them.",
+      description: "Kongle firmware; current time and firmware revision are available.",
       isBuiltin: true,
-      featureIds: sanitizeFeatureIds([FeatureId.bleCurrentTime]),
+      featureIds: sanitizeFeatureIds([FeatureId.bleDeviceInformation, FeatureId.bleCurrentTime]),
     },
   ];
 }
