@@ -19,7 +19,6 @@ const PACKET_SIZE: usize = 20;
 const PRN: usize = 10;
 const CP_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCEL_POLL: Duration = Duration::from_millis(100);
-const UNSUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(2);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 static DFU_CANCEL: AtomicBool = AtomicBool::new(false);
 static DFU_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -302,13 +301,11 @@ pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Res
     })
     .await;
     eprintln!("[dfu] transfer finished: {result:?}");
-    // Activation may reboot the PineTime and drop GATT before this cleanup.
-    // Do not keep the app's DFU lock held indefinitely waiting for unsubscribe.
-    match tokio::time::timeout(UNSUBSCRIBE_TIMEOUT, handler.unsubscribe(cp)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("[dfu] control point unsubscribe: {error}"),
-        Err(_) => eprintln!("[dfu] control point unsubscribe timed out"),
-    }
+    // Android's unsubscribe bridge blocks until a GATT descriptor callback.
+    // After activation the watch reboots before that callback, so wrapping it
+    // in tokio::timeout cannot unblock the synchronous mobile-plugin call.
+    // The UI disconnects after this command settles; the BLE handler removes
+    // notification listeners when that connection closes.
     result
 }
 
