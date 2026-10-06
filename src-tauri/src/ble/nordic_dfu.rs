@@ -57,6 +57,9 @@ trait Transport {
     async fn control(&mut self, data: &[u8], with_response: bool) -> Result<(), String>;
     async fn packet(&mut self, data: &[u8]) -> Result<(), String>;
     async fn receive(&mut self) -> Result<Vec<u8>, String>;
+    fn is_connected(&self) -> bool {
+        true
+    }
 }
 
 struct BleTransport<'a> {
@@ -66,6 +69,9 @@ struct BleTransport<'a> {
 }
 
 impl Transport for BleTransport<'_> {
+    fn is_connected(&self) -> bool {
+        self.handler.is_connected()
+    }
     async fn control(&mut self, data: &[u8], with_response: bool) -> Result<(), String> {
         tokio::time::timeout(
             WRITE_TIMEOUT,
@@ -117,6 +123,9 @@ async fn receive_before<T: Transport>(
 ) -> Result<Vec<u8>, String> {
     loop {
         check_cancel(cancel)?;
+        if !t.is_connected() {
+            return Err("DFU: watch disconnected before the update completed".into());
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err("DFU: timeout waiting for control point response".into());
@@ -202,7 +211,7 @@ async fn transfer<T: Transport>(
     t: &mut T,
     image: DfuImage,
     cancel: &AtomicBool,
-    progress: impl Fn(&str, u8) -> Result<(), String>,
+    mut progress: impl FnMut(&str, u8) -> Result<(), String>,
 ) -> Result<(), String> {
     check_cancel(cancel)?;
     progress("starting", 0)?;
@@ -274,7 +283,14 @@ pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Res
         rx,
         overflow,
     };
+    let mut last_logged_transfer_percent = 0;
     let result = transfer(&mut transport, image, &DFU_CANCEL, |phase, percent| {
+        if phase != "transfer" || percent >= last_logged_transfer_percent + 25 {
+            eprintln!("[dfu] {phase}: {percent}%");
+            if phase == "transfer" {
+                last_logged_transfer_percent = percent;
+            }
+        }
         app.emit(
             "dfu-progress",
             DfuProgressPayload {
@@ -285,9 +301,14 @@ pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Res
         .map_err(|e| e.to_string())
     })
     .await;
+    eprintln!("[dfu] transfer finished: {result:?}");
     // Activation may reboot the PineTime and drop GATT before this cleanup.
     // Do not keep the app's DFU lock held indefinitely waiting for unsubscribe.
-    let _ = tokio::time::timeout(UNSUBSCRIBE_TIMEOUT, handler.unsubscribe(cp)).await;
+    match tokio::time::timeout(UNSUBSCRIBE_TIMEOUT, handler.unsubscribe(cp)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("[dfu] control point unsubscribe: {error}"),
+        Err(_) => eprintln!("[dfu] control point unsubscribe timed out"),
+    }
     result
 }
 
@@ -295,12 +316,24 @@ pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Res
 mod tests {
     use super::*;
     use std::collections::VecDeque;
-    #[derive(Default)]
     struct Mock {
         replies: VecDeque<Vec<u8>>,
         writes: Vec<(bool, Vec<u8>, bool)>,
+        connected: bool,
+    }
+    impl Default for Mock {
+        fn default() -> Self {
+            Self {
+                replies: VecDeque::new(),
+                writes: Vec::new(),
+                connected: true,
+            }
+        }
     }
     impl Transport for Mock {
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
         async fn control(&mut self, data: &[u8], response: bool) -> Result<(), String> {
             self.writes.push((true, data.to_vec(), response));
             Ok(())
@@ -473,6 +506,18 @@ mod tests {
                 .unwrap_err()
                 .contains("timeout")
         );
+    }
+    #[tokio::test]
+    async fn disconnect_ends_control_wait_without_activating() {
+        let mut device = Mock {
+            connected: false,
+            ..Mock::default()
+        };
+        let error = expect_response(&mut device, 4, &AtomicBool::new(false))
+            .await
+            .unwrap_err();
+        assert!(error.contains("disconnected"));
+        assert!(device.writes.is_empty());
     }
     #[test]
     fn rejects_malformed_and_error_responses() {
