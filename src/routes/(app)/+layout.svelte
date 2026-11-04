@@ -33,6 +33,10 @@
     if (phase === "selecting_package") return "Choose a firmware package in the Android file picker.";
     if (phase === "staging") return "Copying the selected file into app storage.";
     if (phase === "downloading") return "Downloading and checking the Kongle release package.";
+    if (phase === "transfer" && percent === 100) return "Transfer complete; waiting for the watch to acknowledge the image.";
+    if (phase === "validating") return "Transfer complete; the watch is verifying the image.";
+    if (phase === "applying") return "Image verified; requesting a trial boot.";
+    if (phase === "activation_requested") return "Trial boot requested; closing the Bluetooth session.";
     return `${phase.replaceAll("_", " ")} (${percent}%)`;
   }
 

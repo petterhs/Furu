@@ -26,9 +26,10 @@
     readBoundedDfuFile,
     withDfuCancellation,
   } from "$lib/dfuFile";
-  import { FeatureId } from "$lib/bleContract";
+  import { FeatureId, ProfileId } from "$lib/bleContract";
   import {
     activeFeatureIds,
+    activeProfileId,
     batteryPercent,
     connected,
     connectError,
@@ -323,8 +324,9 @@
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
-    let activationRequested = false;
+    let nativeTransferAttempted = false;
     let sessionDir: string | null = null;
+    const dfuProfile = $activeProfileId;
     const signal = getDfuAbortSignal();
     if (!signal) {
       endDfuSession();
@@ -390,24 +392,28 @@
 
       unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
         updateDfuProgress(e.payload.phase, e.payload.percent);
-        if (e.payload.phase === "applying" || e.payload.phase === "activation_requested") activationRequested = true;
       });
       if (signal.aborted) return;
       updateDfuProgress("starting", 0);
+      // A reboot or failed transfer may drop GATT before the activation event reaches JS.
+      // Reconcile the link whenever the native DFU command was attempted.
+      nativeTransferAttempted = true;
       await invoke("ble_dfu_flash_package", { input });
-      activationRequested = true;
       finishDfuSession("success");
       keepResult = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logBleDiagnostic(`DFU: error: ${message}`);
       if (signal.aborted || /cancel(?:led|ed)/i.test(message)) return;
-      finishDfuSession("error", message);
+      const guidance = dfuProfile === ProfileId.kongle && /rejected opcode 0x01 \(status 0x05\)/i.test(message)
+        ? "Kongle refused to start the update (0x01/0x05). If the watch shows ‘Trial: reset reverts’, reset it to restore the previous firmware before trying another update; the rollback image must be preserved."
+        : message;
+      finishDfuSession("error", guidance);
       keepResult = true;
     } finally {
       unlisten?.();
       endDfuSession();
-      if (activationRequested) await disconnectAfterDfu();
+      if (nativeTransferAttempted) await disconnectAfterDfu();
       if (sessionDir) {
         void remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
       }
