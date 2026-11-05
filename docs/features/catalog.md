@@ -54,7 +54,7 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 | Current Time | `ble.current_time` | ✓ | ✓ | — |
 | Battery | `ble.battery` | ✓ | — | — |
 | Heart Rate | `ble.hr` | ✓ | — | — |
-| Notifications | `ble.anss` | ✓ | — | — |
+| Notifications | `ble.anss` | ✓ | ✓ | — |
 | Steps | `ble.dis_steps` | ✓ | — | — |
 | DFU / OTA | `infinitime.dfu` | ✓ | — | — |
 | Companion UART | `infinitime.companion_uart` | ✓ | — | — |
