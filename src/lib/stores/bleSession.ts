@@ -863,6 +863,9 @@ const CONNECT_SCAN_TIMEOUT_MS = 15_000;
 // connect and 5 s for its event each, plus retry delays).
 const CONNECT_ATTEMPT_TIMEOUT_MS = 35_000;
 const DFU_DISCONNECT_TIMEOUT_MS = 8_000;
+// Android can finish a write-without-response before the watch processes the
+// activation command. Give the watch a chance to reboot before closing GATT.
+const DFU_ACTIVATION_GRACE_MS = 2_000;
 
 async function connectWithTimeout(address: string, timeoutMs: number): Promise<void> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -1040,8 +1043,8 @@ export async function disconnectDevice(): Promise<void> {
   }
 }
 
-/** A successful DFU reboots the watch, so stale BLE state must not keep the UI locked. */
-export async function disconnectAfterDfu(): Promise<void> {
+/** Reconcile the BLE link after DFU, allowing a successful activation to reach the watch. */
+export async function disconnectAfterDfu(activationRequested = false): Promise<void> {
   if (!beginBleMutation()) {
     pushLog("DFU disconnect: another BLE operation is in progress; clearing rebooted device state");
     connected.set(false);
@@ -1055,13 +1058,21 @@ export async function disconnectAfterDfu(): Promise<void> {
   cancelAutoReconnectCycle();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
-    await Promise.race([
-      disconnect(),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("disconnect timed out")), DFU_DISCONNECT_TIMEOUT_MS);
-      }),
-    ]);
-    pushLog("DFU disconnect: BLE link closed");
+    if (activationRequested) {
+      pushLog("DFU activation: waiting for the watch to reboot");
+      await new Promise<void>((resolve) => setTimeout(resolve, DFU_ACTIVATION_GRACE_MS));
+    }
+    if (get(connected)) {
+      await Promise.race([
+        disconnect(),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("disconnect timed out")), DFU_DISCONNECT_TIMEOUT_MS);
+        }),
+      ]);
+      pushLog("DFU disconnect: BLE link closed");
+    } else {
+      pushLog("DFU disconnect: watch already disconnected");
+    }
   } catch (error) {
     pushLog(`DFU disconnect: ${String(error)}; clearing stale connection state`);
   } finally {

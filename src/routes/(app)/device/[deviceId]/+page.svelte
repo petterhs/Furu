@@ -325,6 +325,7 @@
     let unlisten: (() => void) | undefined;
     let keepResult = false;
     let nativeTransferAttempted = false;
+    let activationRequested = false;
     let sessionDir: string | null = null;
     const dfuProfile = $activeProfileId;
     const signal = getDfuAbortSignal();
@@ -399,6 +400,7 @@
       // Reconcile the link whenever the native DFU command was attempted.
       nativeTransferAttempted = true;
       await invoke("ble_dfu_flash_package", { input });
+      activationRequested = true;
       finishDfuSession("success");
       keepResult = true;
     } catch (err) {
@@ -406,14 +408,14 @@
       logBleDiagnostic(`DFU: error: ${message}`);
       if (signal.aborted || /cancel(?:led|ed)/i.test(message)) return;
       const guidance = dfuProfile === ProfileId.kongle && /rejected opcode 0x01 \(status 0x05\)/i.test(message)
-        ? "Kongle refused to start the update (0x01/0x05). If the watch shows ‘Trial: reset reverts’, reset it to restore the previous firmware before trying another update; the rollback image must be preserved."
+        ? "Kongle refused to start the update (0x01/0x05). If it shows ‘Trial: reset reverts’, reset it to restore the previous firmware. Otherwise check that the installed Kongle was built with ota-activation."
         : message;
       finishDfuSession("error", guidance);
       keepResult = true;
     } finally {
       unlisten?.();
       endDfuSession();
-      if (nativeTransferAttempted) await disconnectAfterDfu();
+      if (nativeTransferAttempted) await disconnectAfterDfu(activationRequested);
       if (sessionDir) {
         void remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
       }
