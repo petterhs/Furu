@@ -89,6 +89,8 @@
     "7d": 7 * 24 * 60 * 60 * 1000,
   };
   let selectedRange = $state<RangeKey>("3d");
+  let rangeNowMs = $state(Date.now());
+  let rangeClock: ReturnType<typeof setInterval>;
 
   let dfuBusy = $derived($dfuInProgress);
   let dfuStatus = $derived($dfuSession?.deviceId === (known?.id ?? deviceId) ? $dfuSession : null);
@@ -96,7 +98,7 @@
 
   const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
   const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
-  const rangeStartMs = $derived(Date.now() - RANGE_MS[selectedRange]);
+  const rangeStartMs = $derived(rangeNowMs - RANGE_MS[selectedRange]);
   const filteredSamples = $derived(
     allSamplesForDevice.filter((sample) => Date.parse(sample.at) >= rangeStartMs),
   );
@@ -136,7 +138,7 @@
     return count + (Date.parse(sample.at) - Date.parse(filteredSamples[index - 1].at) > 15 * 60_000 ? 1 : 0);
   }, 0));
   /** Aligns connection strip with battery chart window (both use the range buttons). */
-  const rangeEndMs = $derived(Date.now());
+  const rangeEndMs = $derived(rangeNowMs);
   const rangeSpanMs = $derived(Math.max(1, rangeEndMs - rangeStartMs));
   const chargingSegments = $derived(filteredSamples.flatMap((sample, index) => {
     if (!sample.charging) return [];
@@ -278,7 +280,10 @@
     }
   }
 
-  onMount(() => { void refreshFirmwareReleases(); });
+  onMount(() => {
+    void refreshFirmwareReleases();
+    rangeClock = setInterval(() => { rangeNowMs = Date.now(); }, 1_000);
+  });
 
   /** A cache-directory suffix only needs to be unique; WebViews may lack crypto.randomUUID(). */
   function newDfuSessionId(): string {
@@ -359,7 +364,10 @@
     pending?.resolve(confirmed);
   }
 
-  onDestroy(() => finishDfuConfirmation(false));
+  onDestroy(() => {
+    clearInterval(rangeClock);
+    finishDfuConfirmation(false);
+  });
 
   async function onDfuStart(packageKind: "zip" | "bin", release: FirmwareRelease | null = null): Promise<void> {
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
