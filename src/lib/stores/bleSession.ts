@@ -422,29 +422,36 @@ async function refreshBatteryLevel(): Promise<void> {
     logBatteryGate("battery polling: skipped (no selected address)");
     return;
   }
-  if (!get(activeFeatureIds).includes(FeatureId.bleBattery)) {
-    logBatteryGate("battery polling: skipped (active profile lacks ble.battery)");
+  const features = get(activeFeatureIds);
+  const hasBatteryService = features.includes(FeatureId.bleBattery);
+  const hasKongleHistory = features.includes(FeatureId.kongleBatteryHistory);
+  if (!hasBatteryService && !hasKongleHistory) {
+    logBatteryGate("battery polling: skipped (profile has no battery capability)");
     return;
   }
   lastBatteryGateLog = null;
   batteryReadInFlight = true;
   try {
-    pushLog("battery read: requesting BAS battery level");
-    const level = await invoke<number>("ble_read_battery_percentage");
-    batteryPercent.set(level);
-    batteryUpdatedAt.set(Date.now());
-    batteryError.set(null);
     const connectedAddress = get(selectedAddress);
-    if (connectedAddress) {
-      const remembered = getRememberedByAddress(connectedAddress);
-      if (remembered) {
-        await appendBatterySample(remembered.id, level);
-      } else {
-        pushLog(`battery read: sample skipped (unknown remembered device ${connectedAddress})`);
+    if (hasBatteryService) {
+      try {
+        pushLog("battery read: requesting BAS battery level");
+        const level = await invoke<number>("ble_read_battery_percentage");
+        batteryPercent.set(level);
+        batteryUpdatedAt.set(Date.now());
+        batteryError.set(null);
+        if (connectedAddress) {
+          const remembered = getRememberedByAddress(connectedAddress);
+          if (remembered) await appendBatterySample(remembered.id, level);
+          else pushLog(`battery read: sample skipped (unknown remembered device ${connectedAddress})`);
+        }
+        pushLog(`battery read: ${level}%`);
+      } catch (error) {
+        batteryError.set(`Battery read failed: ${String(error)}`);
+        pushLog(`battery read error: ${String(error)}`);
       }
     }
-    pushLog(`battery read: ${level}%`);
-    if (get(activeFeatureIds).includes(FeatureId.kongleBatteryHistory)) {
+    if (hasKongleHistory) {
       try {
         const current = await invoke<KongleBatteryCurrent>("ble_read_kongle_battery_current");
         if (get(connected) && get(selectedAddress) === connectedAddress) {
@@ -463,9 +470,6 @@ async function refreshBatteryLevel(): Promise<void> {
       }
       if (connectedAddress) void syncKongleBatteryHistory(connectedAddress);
     }
-  } catch (error) {
-    batteryError.set(`Battery read failed: ${String(error)}`);
-    pushLog(`battery read error: ${String(error)}`);
   } finally {
     batteryReadInFlight = false;
   }
@@ -483,8 +487,9 @@ function reconcileBatteryPolling(): void {
     clearBatteryState();
     return;
   }
-  if (!get(activeFeatureIds).includes(FeatureId.bleBattery)) {
-    logBatteryGate("battery polling: disabled (feature gate ble.battery missing)");
+  const features = get(activeFeatureIds);
+  if (!features.includes(FeatureId.bleBattery) && !features.includes(FeatureId.kongleBatteryHistory)) {
+    logBatteryGate("battery polling: disabled (no battery capability)");
     clearBatteryState();
     return;
   }
