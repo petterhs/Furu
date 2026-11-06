@@ -897,6 +897,9 @@
       <div id="dfu-confirm-description" class="mt-3 space-y-2 text-sm">
         <p class="m-0">This will flash firmware over Bluetooth using Nordic legacy DFU. A wrong file or interrupted update can make the watch unusable.</p>
         <p class="m-0">Stay nearby, keep Furu open, and do not disconnect until the transfer finishes.</p>
+        {#if $activeProfileId === ProfileId.infinitime}
+          <p class="m-0 font-medium">On the watch, check Settings → Firmware and validate the current InfiniTime image before updating. InfiniTime can erase the rollback copy when updating from an unvalidated trial image.</p>
+        {/if}
         <p class="m-0 font-medium">{dfuConfirmation.batteryLine}</p>
       </div>
       <div class="mt-5 flex justify-end gap-2">

@@ -254,8 +254,15 @@ async fn transfer<T: Transport>(
     expect_response(t, 0x04, cancel).await?;
     check_cancel(cancel)?;
     progress("applying", 100)?;
-    // The watch may disconnect to reboot immediately: do not await an ATT reply.
-    t.control(&[0x05], false).await?;
+    // InfiniTime exposes the control point as Write, not Write Without
+    // Response. Wait for its ATT write acknowledgement so Android cannot
+    // report a locally queued command as an activated image. Kongle supports
+    // this write type too and delays its reboot until the reply is sent.
+    t.control(&[0x05], true).await.map_err(|error| {
+        format!(
+            "DFU: activation write was not acknowledged ({error}); check the watch before retrying"
+        )
+    })?;
     progress("activation_requested", 100)
 }
 
@@ -386,7 +393,7 @@ mod tests {
                 (vec![8, 10, 0], true),
                 (vec![3], true),
                 (vec![4], true),
-                (vec![5], false)
+                (vec![5], true)
             ]
         );
         let packets: Vec<_> = device.writes.iter().filter(|w| !w.0).collect();
