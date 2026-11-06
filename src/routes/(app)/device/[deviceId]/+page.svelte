@@ -98,7 +98,7 @@
 
   const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
   const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
-  const rangeStartMs = $derived(Date.now() - RANGE_MS[selectedRange]);
+  const rangeStartMs = $derived(rangeNowMs - RANGE_MS[selectedRange]);
   const filteredSamples = $derived(
     allSamplesForDevice.filter((sample) => Date.parse(sample.at) >= rangeStartMs),
   );
