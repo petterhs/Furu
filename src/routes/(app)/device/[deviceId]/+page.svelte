@@ -31,6 +31,8 @@
     activeFeatureIds,
     activeProfileId,
     batteryPercent,
+    batteryCharging,
+    batteryVoltageMv,
     connected,
     connectError,
     connectTo,
@@ -101,9 +103,48 @@
   const chartPoints = $derived(
     filteredSamples.map((sample) => ({ time: new Date(sample.at), percent: sample.percent })),
   );
+  function splitAtGaps<T extends { time: Date }>(points: T[]): T[][] {
+    const segments: T[][] = [];
+    for (const point of points) {
+      const current = segments.at(-1);
+      if (!current || point.time.getTime() - current[current.length - 1].time.getTime() > 15 * 60_000) {
+        segments.push([point]);
+      } else {
+        current.push(point);
+      }
+    }
+    return segments;
+  }
+  const chartSegments = $derived(splitAtGaps(chartPoints));
+  const chartSeries = $derived(chartSegments.map((segment, index) => ({
+    key: index,
+    data: segment,
+    value: (point: { time: Date; percent: number }) => point.percent,
+    color: "var(--color-primary-500)",
+  })));
+  const voltagePoints = $derived(filteredSamples
+    .filter((sample) => sample.voltageMv !== undefined)
+    .map((sample) => ({ time: new Date(sample.at), voltageMv: sample.voltageMv! })));
+  const voltageSeries = $derived(splitAtGaps(voltagePoints).map((segment, index) => ({
+    key: index,
+    data: segment,
+    value: (point: { time: Date; voltageMv: number }) => point.voltageMv,
+    color: "var(--color-secondary-500)",
+  })));
+  const chartGapCount = $derived(filteredSamples.reduce((count, sample, index) => {
+    if (index === 0) return count;
+    return count + (Date.parse(sample.at) - Date.parse(filteredSamples[index - 1].at) > 15 * 60_000 ? 1 : 0);
+  }, 0));
   /** Aligns connection strip with battery chart window (both use the range buttons). */
   const rangeEndMs = $derived(Date.now());
   const rangeSpanMs = $derived(Math.max(1, rangeEndMs - rangeStartMs));
+  const chargingSegments = $derived(filteredSamples.flatMap((sample, index) => {
+    if (!sample.charging) return [];
+    const start = Date.parse(sample.at);
+    const next = index + 1 < filteredSamples.length ? Date.parse(filteredSamples[index + 1].at) : rangeEndMs;
+    const end = Math.min(next, start + 15 * 60_000, rangeEndMs);
+    return end > start ? [{ left: Math.max(0, (start - rangeStartMs) / rangeSpanMs * 100), width: (end - start) / rangeSpanMs * 100 }] : [];
+  }));
 
   const connectionEventsForDevice = $derived(known ? ($connectionHistoryByDevice[known.id] ?? []) : []);
   const connectionSegments = $derived(
@@ -462,6 +503,12 @@
             <p class="m-0 flex items-center gap-1">
               <Battery class="size-4 shrink-0" />
               {$batteryPercent}%
+              {#if $batteryCharging !== null}
+                · {$batteryCharging ? "Charging" : "On battery"}
+              {/if}
+              {#if $batteryVoltageMv !== null}
+                · {($batteryVoltageMv / 1000).toFixed(2)} V
+              {/if}
             </p>
           {/if}
           {#if $stepCount !== null}
@@ -723,6 +770,7 @@
       <div class="h-56 rounded border border-[color:var(--color-surface-300-700)] bg-[color:var(--color-surface-50-950)] p-2">
         <LineChart
           data={chartPoints}
+          series={chartSeries}
           x="time"
           y="percent"
           yDomain={[0, 100]}
@@ -758,6 +806,45 @@
           }}
         />
       </div>
+      {#if chartGapCount > 0}
+        <p class="mt-2 text-xs text-[color:var(--color-surface-700-300)]">
+          {chartGapCount} gap{chartGapCount === 1 ? "" : "s"} over 15 minutes; no readings are inferred inside them.
+        </p>
+      {/if}
+      {#if chargingSegments.length}
+        <div class="mt-2 flex items-center gap-2 text-xs text-[color:var(--color-surface-700-300)]">
+          <span>Charging</span>
+          <div class="relative h-2 min-w-0 flex-1 rounded bg-[color:var(--color-surface-300-700)]" aria-label="Recorded charging periods">
+            {#each chargingSegments as segment}
+              <span class="absolute top-0 h-2 rounded bg-[color:var(--color-success-500)]" style:left="{segment.left}%" style:width="{segment.width}%"></span>
+            {/each}
+          </div>
+        </div>
+      {/if}
+      {#if voltagePoints.length > 1}
+        <h3 class="mb-1 mt-4 text-sm font-medium">Battery voltage</h3>
+        <p class="mb-2 text-xs text-[color:var(--color-surface-700-300)]">Raw voltage is useful for comparing drain; the percentage is a coarse estimate.</p>
+        <div class="h-40 rounded border border-[color:var(--color-surface-300-700)] bg-[color:var(--color-surface-50-950)] p-2">
+          <LineChart
+            data={voltagePoints}
+            series={voltageSeries}
+            x="time"
+            y="voltageMv"
+            yDomain={[3000, 4300]}
+            xDomain={[new Date(rangeStartMs), new Date(rangeEndMs)]}
+            height={130}
+            axis={true}
+            grid={true}
+            points={false}
+            rule={false}
+            props={{
+              spline: { stroke: "var(--color-secondary-500)", strokeWidth: 2 },
+              xAxis: { ticks: 4, format: (v: Date) => v.toLocaleDateString() },
+              yAxis: { ticks: [3000, 3500, 4000], format: (v: number) => `${(v / 1000).toFixed(1)} V` },
+            }}
+          />
+        </div>
+      {/if}
     {/if}
   </article>
 

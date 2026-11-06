@@ -20,7 +20,9 @@ import { notificationFilters } from "$lib/stores/notificationFilters";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
 import {
   appendBatterySample,
+  mergeBatterySamples,
 } from "$lib/stores/batteryHistory";
+import type { BatteryHistorySample } from "$lib/types/batteryHistory";
 import {
   bindRememberedDevice,
   clampAutoReconnectIntervalMinutes,
@@ -69,6 +71,8 @@ export const selectedAddress = writable<string | null>(null);
 export const connectingAddress = writable<string | null>(null);
 export const connectError = writable<{ address: string; message: string } | null>(null);
 export const batteryPercent = writable<number | null>(null);
+export const batteryVoltageMv = writable<number | null>(null);
+export const batteryCharging = writable<boolean | null>(null);
 export const batteryUpdatedAt = writable<number | null>(null);
 export const batteryError = writable<string | null>(null);
 export const stepCount = writable<number | null>(null);
@@ -89,6 +93,10 @@ let ctsSyncKey: string | null = null;
 let ctsWriteInFlight: Promise<void> | null = null;
 let batteryPollIntervalId: ReturnType<typeof setInterval> | null = null;
 let batteryReadInFlight = false;
+let batteryHistoryReadInFlight = false;
+let batteryHistorySyncedAddress: string | null = null;
+let batteryHistorySyncedAt = 0;
+const BATTERY_HISTORY_SYNC_INTERVAL_MS = 30 * 60_000;
 const BATTERY_POLL_INTERVAL_MS = 60_000;
 let lastBatteryGateLog: string | null = null;
 
@@ -314,8 +322,31 @@ function wireCtsSyncReconciliation(): void {
 
 function clearBatteryState(): void {
   batteryPercent.set(null);
+  batteryVoltageMv.set(null);
+  batteryCharging.set(null);
   batteryUpdatedAt.set(null);
   batteryError.set(null);
+}
+
+type KongleBatteryCurrent = { voltageMv: number; percent: number; charging: boolean };
+
+async function syncKongleBatteryHistory(address: string): Promise<void> {
+  if (batteryHistoryReadInFlight ||
+      (batteryHistorySyncedAddress === address && Date.now() - batteryHistorySyncedAt < BATTERY_HISTORY_SYNC_INTERVAL_MS)) return;
+  batteryHistoryReadInFlight = true;
+  try {
+    const samples = await invoke<BatteryHistorySample[]>("ble_read_kongle_battery_history");
+    if (!get(connected) || get(selectedAddress) !== address) return;
+    const remembered = getRememberedByAddress(address);
+    if (remembered) await mergeBatterySamples(remembered.id, samples);
+    batteryHistorySyncedAddress = address;
+    batteryHistorySyncedAt = Date.now();
+    pushLog(`battery history: imported ${samples.length} watch samples`);
+  } catch (error) {
+    pushLog(`battery history read error: ${String(error)}`);
+  } finally {
+    batteryHistoryReadInFlight = false;
+  }
 }
 
 function clearStepState(): void {
@@ -383,6 +414,10 @@ async function refreshBatteryLevel(): Promise<void> {
     logBatteryGate("battery polling: skipped (not connected)");
     return;
   }
+  if (isDfuSessionActive()) {
+    logBatteryGate("battery polling: skipped during DFU");
+    return;
+  }
   if (!get(selectedAddress)) {
     logBatteryGate("battery polling: skipped (no selected address)");
     return;
@@ -409,6 +444,25 @@ async function refreshBatteryLevel(): Promise<void> {
       }
     }
     pushLog(`battery read: ${level}%`);
+    if (get(activeFeatureIds).includes(FeatureId.kongleBatteryHistory)) {
+      try {
+        const current = await invoke<KongleBatteryCurrent>("ble_read_kongle_battery_current");
+        if (get(connected) && get(selectedAddress) === connectedAddress) {
+          batteryVoltageMv.set(current.voltageMv);
+          batteryCharging.set(current.charging);
+          if (connectedAddress) {
+            const remembered = getRememberedByAddress(connectedAddress);
+            if (remembered) await mergeBatterySamples(remembered.id, [{
+              at: new Date().toISOString(), percent: current.percent,
+              voltageMv: current.voltageMv, charging: current.charging,
+            }]);
+          }
+        }
+      } catch (error) {
+        pushLog(`Kongle battery telemetry read error: ${String(error)}`);
+      }
+      if (connectedAddress) void syncKongleBatteryHistory(connectedAddress);
+    }
   } catch (error) {
     batteryError.set(`Battery read failed: ${String(error)}`);
     pushLog(`battery read error: ${String(error)}`);
@@ -423,6 +477,8 @@ function reconcileBatteryPolling(): void {
     batteryPollIntervalId = null;
   }
   if (!get(connected) || !get(selectedAddress)) {
+    batteryHistorySyncedAddress = null;
+    batteryHistorySyncedAt = 0;
     logBatteryGate("battery polling: disabled (missing connection context)");
     clearBatteryState();
     return;

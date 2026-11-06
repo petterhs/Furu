@@ -6,6 +6,7 @@ export const FeatureId = {
   bleDeviceInformation: "ble.device_information",
   bleCurrentTime: "ble.current_time",
   bleBattery: "ble.battery",
+  kongleBatteryHistory: "kongle.battery_history",
   bleHr: "ble.hr",
   bleAnss: "ble.anss",
   bleDisSteps: "ble.dis_steps",

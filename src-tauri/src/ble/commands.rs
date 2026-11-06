@@ -6,6 +6,7 @@ use super::ans;
 use super::cts;
 use super::dis;
 use super::feature_id::FeatureId;
+use super::kongle_battery;
 use super::profiles;
 use super::registry;
 use super::session;
@@ -37,7 +38,10 @@ pub fn ble_set_active_profile(profile_id: String) -> Result<(), String> {
 
 /// Sets arbitrary profile id (including custom ids) with a validated feature ID list.
 #[tauri::command]
-pub fn ble_set_active_capabilities(profile_id: String, feature_ids: Vec<String>) -> Result<(), String> {
+pub fn ble_set_active_capabilities(
+    profile_id: String,
+    feature_ids: Vec<String>,
+) -> Result<(), String> {
     let mut validated = Vec::with_capacity(feature_ids.len());
     for s in feature_ids {
         let _ = FeatureId::parse(&s)?;
@@ -78,7 +82,9 @@ pub fn ble_set_connection_state(connected: bool) -> Result<(), String> {
 
 /// See [`super::notification_forwarding::absorb_notification_backlog_watermark`].
 #[tauri::command]
-pub async fn ble_absorb_notification_backlog_watermark(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn ble_absorb_notification_backlog_watermark(
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     super::notification_forwarding::absorb_notification_backlog_watermark(app).await
 }
 
@@ -153,7 +159,10 @@ pub async fn ble_read_step_count() -> Result<u32, String> {
         .map_err(|e| e.to_string())?;
 
     if bytes.len() < 4 {
-        return Err(format!("step count read: expected 4 bytes (uint32 LE), got {}", bytes.len()));
+        return Err(format!(
+            "step count read: expected 4 bytes (uint32 LE), got {}",
+            bytes.len()
+        ));
     }
     let arr: [u8; 4] = bytes[..4].try_into().expect("length checked");
     Ok(u32::from_le_bytes(arr))
@@ -184,6 +193,17 @@ pub async fn ble_read_battery_percentage() -> Result<u8, String> {
         return Err(format!("battery level out of range: {level}"));
     }
     Ok(level)
+}
+
+#[tauri::command]
+pub async fn ble_read_kongle_battery_current() -> Result<kongle_battery::BatteryCurrent, String> {
+    kongle_battery::read_current().await
+}
+
+#[tauri::command]
+pub async fn ble_read_kongle_battery_history() -> Result<Vec<kongle_battery::BatterySample>, String>
+{
+    kongle_battery::read_history().await
 }
 
 #[derive(Debug, Deserialize)]

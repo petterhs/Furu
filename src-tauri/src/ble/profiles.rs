@@ -34,11 +34,7 @@ impl ProfileId {
 
     #[must_use]
     pub const fn all() -> &'static [ProfileId] {
-        &[
-            ProfileId::Unknown,
-            ProfileId::InfiniTime,
-            ProfileId::Kongle,
-        ]
+        &[ProfileId::Unknown, ProfileId::InfiniTime, ProfileId::Kongle]
     }
 
     #[must_use]
@@ -57,7 +53,7 @@ impl ProfileId {
             Self::InfiniTime => {
                 "InfiniTime-oriented GATT features (CTS, ANS, DFU, …); name rules can select this profile."
             }
-            Self::Kongle => "Kongle firmware; current time and firmware revision.",
+            Self::Kongle => "Kongle firmware; time, battery, history, and notifications.",
         }
     }
 }
@@ -101,6 +97,8 @@ pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
             FeatureId::BleDeviceInformation,
             FeatureId::BleCurrentTime,
             FeatureId::BleAlertNotification,
+            FeatureId::BleBattery,
+            FeatureId::KongleBatteryHistory,
         ],
     }
 }

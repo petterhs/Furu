@@ -31,6 +31,7 @@ In-app profile IDs (`unknown`, `infinitime`, `kongle`, …) choose which **catal
 | Device Info | `ble.device_information` | ✅ | SIG Device Information `0x180A`; strings `0x2A24`–`0x2A29` | Reads via `ble_read_device_information`; device page table |
 | Current Time | `ble.current_time` | ✅ | SIG Current Time `0x1805` / `0x2A2B` | Manual + optional interval sync; `ble_poc_send_current_time` |
 | Battery | `ble.battery` | ✅ | SIG Battery `0x180F` / `0x2A19` | Connected read + UI polling |
+| Kongle battery history | `kongle.battery_history` | ⚠️ | Kongle `6b6f0000-…` telemetry and paged history | Voltage, charging, reconnect backfill; persistent watch log requires experimental firmware feature |
 | Heart Rate | `ble.hr` | ✅ | SIG Heart Rate `0x180D` / Measurement `0x2A37` | JS notify + SIG parser; stale / invalid hidden |
 | Notifications | `ble.anss` | ✅ | SIG Alert Notification `0x1811` / New Alert `0x2A46` | Watch alerts + Android forward; `ble::ans` framing |
 | Steps | `ble.dis_steps` | ✅ | [InfiniTime Motion Service](https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/MotionService.md) `00030000-…`, step `00030001-…` | `uint32` LE; `ble_read_step_count` |
@@ -52,7 +53,8 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 |------|------------|:----------:|:------:|:-------:|
 | Device Info | `ble.device_information` | ✓ | — | — |
 | Current Time | `ble.current_time` | ✓ | ✓ | — |
-| Battery | `ble.battery` | ✓ | — | — |
+| Battery | `ble.battery` | ✓ | ✓ | — |
+| Kongle battery history | `kongle.battery_history` | — | ✓ | — |
 | Heart Rate | `ble.hr` | ✓ | — | — |
 | Notifications | `ble.anss` | ✓ | ✓ | — |
 | Steps | `ble.dis_steps` | ✓ | — | — |

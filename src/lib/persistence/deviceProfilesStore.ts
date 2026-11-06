@@ -52,12 +52,14 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
     {
       id: ProfileId.kongle,
       label: "Kongle",
-      description: "Kongle firmware; current time, firmware revision, and notifications are available.",
+      description: "Kongle firmware; time, battery, history, and notifications are available.",
       isBuiltin: true,
       featureIds: sanitizeFeatureIds([
         FeatureId.bleDeviceInformation,
         FeatureId.bleCurrentTime,
         FeatureId.bleAnss,
+        FeatureId.bleBattery,
+        FeatureId.kongleBatteryHistory,
       ]),
     },
   ];

@@ -36,6 +36,8 @@ pub fn run() {
             ble::commands::ble_poc_send_current_time,
             ble::commands::ble_poc_send_notification,
             ble::commands::ble_read_battery_percentage,
+            ble::commands::ble_read_kongle_battery_current,
+            ble::commands::ble_read_kongle_battery_history,
             ble::commands::ble_read_step_count,
             ble::commands::ble_read_device_information,
             ble::commands::ble_dfu_flash_package,
