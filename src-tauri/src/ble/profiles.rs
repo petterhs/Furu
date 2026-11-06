@@ -97,6 +97,10 @@ pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
             FeatureId::InfiniTimeDfu,
             FeatureId::InfiniTimeCompanionUart,
         ],
-        ProfileId::Kongle => &[FeatureId::BleDeviceInformation, FeatureId::BleCurrentTime],
+        ProfileId::Kongle => &[
+            FeatureId::BleDeviceInformation,
+            FeatureId::BleCurrentTime,
+            FeatureId::BleAlertNotification,
+        ],
     }
 }
