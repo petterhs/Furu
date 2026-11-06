@@ -20,6 +20,13 @@ pub const BATTERY_SERVICE_UUID: Uuid = uuid!("0000180F-0000-1000-8000-00805F9B34
 /// Bluetooth SIG Battery Level characteristic (`0x2A19`).
 pub const BATTERY_LEVEL_CHAR_UUID: Uuid = uuid!("00002A19-0000-1000-8000-00805F9B34FB");
 
+/// Kongle voltage/charging telemetry and paged battery history.
+pub const KONGLE_BATTERY_SERVICE_UUID: Uuid = uuid!("6b6f0000-1886-4b40-ae7d-00a11ce50001");
+pub const KONGLE_BATTERY_CURRENT_CHAR_UUID: Uuid = uuid!("6b6f0001-1886-4b40-ae7d-00a11ce50001");
+pub const KONGLE_BATTERY_PAGE_CHAR_UUID: Uuid = uuid!("6b6f0002-1886-4b40-ae7d-00a11ce50001");
+pub const KONGLE_BATTERY_CURSOR_CHAR_UUID: Uuid = uuid!("6b6f0003-1886-4b40-ae7d-00a11ce50001");
+pub const KONGLE_BATTERY_EPOCH_CHAR_UUID: Uuid = uuid!("6b6f0004-1886-4b40-ae7d-00a11ce50001");
+
 /// Bluetooth SIG Device Information Service (`0x180A`).
 pub const DEVICE_INFORMATION_SERVICE_UUID: Uuid = uuid!("0000180A-0000-1000-8000-00805F9B34FB");
 

@@ -13,10 +13,28 @@ function pruneSamples(samples: BatteryHistorySample[], nowMs = Date.now()): Batt
     .filter((sample) => {
       if (!sample || typeof sample.at !== "string" || typeof sample.percent !== "number") return false;
       if (sample.percent < 0 || sample.percent > 100) return false;
+      if (sample.voltageMv !== undefined && (!Number.isInteger(sample.voltageMv) || sample.voltageMv < 2000 || sample.voltageMv > 5000)) return false;
+      if (sample.charging !== undefined && typeof sample.charging !== "boolean") return false;
       const ts = Date.parse(sample.at);
       return Number.isFinite(ts) && ts >= cutoff && ts <= nowMs + 60_000;
     })
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .reduce<BatteryHistorySample[]>((merged, sample) => {
+      const previous = merged.at(-1);
+      if (previous && Math.abs(Date.parse(sample.at) - Date.parse(previous.at)) <= 15_000 &&
+          previous.percent === sample.percent &&
+          (previous.charging === undefined || sample.charging === undefined || previous.charging === sample.charging)) {
+        merged[merged.length - 1] = {
+          ...previous,
+          ...sample,
+          voltageMv: sample.voltageMv ?? previous.voltageMv,
+          charging: sample.charging ?? previous.charging,
+        };
+      } else {
+        merged.push(sample);
+      }
+      return merged;
+    }, []);
 }
 
 function normalizeHistory(raw: BatteryHistoryByDevice, nowMs = Date.now()): BatteryHistoryByDevice {
@@ -49,13 +67,16 @@ export async function appendBatterySample(
   percent: number,
   atIso = new Date().toISOString(),
 ): Promise<void> {
-  if (!deviceId.trim()) return;
-  if (percent < 0 || percent > 100) return;
+  await mergeBatterySamples(deviceId, [{ at: atIso, percent }]);
+}
+
+export async function mergeBatterySamples(deviceId: string, samples: BatteryHistorySample[]): Promise<void> {
+  if (!deviceId.trim() || !samples.length) return;
 
   const current = get(batteryHistoryByDevice);
   const next: BatteryHistoryByDevice = { ...current };
   const existing = next[deviceId] ?? [];
-  const appended = pruneSamples([...existing, { at: atIso, percent }]);
+  const appended = pruneSamples([...existing, ...samples]);
   if (!appended.length) {
     delete next[deviceId];
   } else {
