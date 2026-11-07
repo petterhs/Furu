@@ -23,7 +23,7 @@ use tauri::{
     AppHandle, Wry,
 };
 use tokio::sync::RwLock;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -48,6 +48,20 @@ pub fn init<C: serde::de::DeserializeOwned>(
 
 #[derive(Debug, Clone)]
 pub struct Adapter;
+
+impl Adapter {
+    /// Android can construct a remote device from a MAC without a preceding scan.
+    /// Leave advertisement properties empty until an actual scan supplies them.
+    pub(crate) fn peripheral_for_address(&self, address: &str) -> Result<Peripheral> {
+        let address: BDAddr = address.parse().map_err(|e| {
+            btleplug::Error::RuntimeError(format!("Invalid Bluetooth address: {e}"))
+        })?;
+        serde_json::from_value(serde_json::json!({
+            "id": address.to_string(), "address": address.to_string(), "name": "", "rssi": 0
+        }))
+        .map_err(|e| btleplug::Error::RuntimeError(e.to_string()))
+    }
+}
 static DEVICES: Lazy<RwLock<HashMap<PeripheralId, Peripheral>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
@@ -92,15 +106,16 @@ impl btleplug::api::Central for Adapter {
     type Peripheral = Peripheral;
 
     async fn events(&self) -> Result<Pin<Box<dyn Stream<Item = CentralEvent> + Send>>> {
-        let (tx, rx) = tokio::sync::mpsc::channel::<CentralEvent>(1);
-        let stream = ReceiverStream::new(rx);
+        // Never block the mobile IPC callback behind GATT cleanup. Completion
+        // callbacks must remain deliverable while disconnect is being processed.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<CentralEvent>();
+        let stream = UnboundedReceiverStream::new(rx);
         let channel: Channel = Channel::new(move |response| {
             let event = response
                 .deserialize::<CentralEvent>()
                 .expect("failed to deserialize event");
             debug!("sending event: {event:?}");
-            tx.blocking_send(event)
-                .expect("failed to send notification");
+            tx.send(event).expect("failed to send notification");
             Ok(())
         });
         get_handle()

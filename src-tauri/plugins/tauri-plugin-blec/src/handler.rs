@@ -223,10 +223,21 @@ impl Handler {
         &'static self,
         address: &str,
         on_disconnect: OnDisconnectHandler,
-        allow_ibeacons: bool,
+        _allow_ibeacons: bool,
     ) -> Result<(), Error> {
+        #[cfg(target_os = "android")]
+        {
+            let mut devices = self.devices.lock().await;
+            if !devices.contains_key(address) {
+                devices.insert(
+                    address.to_string(),
+                    self.adapter.peripheral_for_address(address)?,
+                );
+            }
+        }
+        #[cfg(not(target_os = "android"))]
         if self.devices.lock().await.is_empty() {
-            self.discover(None, 1000, ScanFilter::None, allow_ibeacons)
+            self.discover(None, 1000, ScanFilter::None, _allow_ibeacons)
                 .await?;
         }
         // cancel any running discovery
@@ -280,6 +291,7 @@ impl Handler {
         device.discover_services().await?;
         debug!("service discovery done");
         let services = device.services();
+        state.characs.clear();
         for s in services {
             for c in &s.characteristics {
                 state.characs.push(c.clone());
@@ -398,7 +410,7 @@ impl Handler {
             warn!("Unexpected disconnect event for device {peripheral_id}, connected device is {connected:?}",);
             return Ok(());
         }
-        {
+        let on_disconnect = {
             debug!("locking state for disconnect");
             let mut state = self.state.lock().await;
             info!("disconnecting");
@@ -407,13 +419,15 @@ impl Handler {
                 handle.abort();
             }
             *self.notify_listeners.lock().await = vec![];
-            state.on_disconnect.take().run().await;
             state.characs.clear();
-        }
-        self.send_connection_update(false).await;
+            state.on_disconnect.take()
+        };
         self.connected_tx
             .send(false)
             .expect("failed to send connected update");
+        self.send_connection_update(false).await;
+        // A callback may itself start BLE work; never run it under session locks.
+        on_disconnect.run().await;
         Ok(())
     }
 
@@ -618,9 +632,10 @@ impl Handler {
         data: &[u8],
         write_type: models::WriteType,
     ) -> Result<(), Error> {
+        // Match disconnect/service discovery's lock order: state, then device.
+        let state = self.state.lock().await;
         let dev = self.connected_dev.lock().await;
         let dev = dev.as_ref().ok_or(Error::NoDeviceConnected)?;
-        let state = self.state.lock().await;
         let charac = if let Some(service) = service {
             state.get_charac_from_service(c, service)?
         } else {
@@ -647,9 +662,10 @@ impl Handler {
     /// });
     /// ```
     pub async fn recv_data(&self, c: Uuid, service: Option<Uuid>) -> Result<Vec<u8>, Error> {
+        // Match disconnect/service discovery's lock order: state, then device.
+        let state = self.state.lock().await;
         let dev = self.connected_dev.lock().await;
         let dev = dev.as_ref().ok_or(Error::NoDeviceConnected)?;
-        let state = self.state.lock().await;
         let charac = if let Some(service) = service {
             state.get_charac_from_service(c, service)?
         } else {
@@ -680,9 +696,10 @@ impl Handler {
         service: Option<Uuid>,
         callback: impl Into<SubscriptionHandler>,
     ) -> Result<(), Error> {
+        // Match disconnect/service discovery's lock order: state, then device.
+        let state = self.state.lock().await;
         let dev = self.connected_dev.lock().await;
         let dev = dev.as_ref().ok_or(Error::NoDeviceConnected)?;
-        let state = self.state.lock().await;
         let charac = if let Some(service) = service {
             state.get_charac_from_service(c, service)?
         } else {
@@ -703,9 +720,10 @@ impl Handler {
     /// Returns an error if no device is connected or the characteristic is not available
     /// or if the unsubscribe operation fails
     pub async fn unsubscribe(&self, c: Uuid) -> Result<(), Error> {
+        // Match disconnect/service discovery's lock order: state, then device.
+        let state = self.state.lock().await;
         let dev = self.connected_dev.lock().await;
         let dev = dev.as_ref().ok_or(Error::NoDeviceConnected)?;
-        let state = self.state.lock().await;
         let charac = state.get_charac(c)?;
         dev.unsubscribe(charac).await?;
         let mut listeners = self.notify_listeners.lock().await;

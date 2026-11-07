@@ -185,8 +185,8 @@ class BleClient(private val activity: Activity, private val plugin: BleClientPlu
                 ?: throw RuntimeException("No bluetooth scanner available for adapter")
         }
 
-        // clear old devices
-        this.plugin.devices.clear()
+        // Keep the GATT owner for known MACs. Scan results are cleared separately
+        // on the Rust side; replacing a Peripheral here loses its live client.
 
         var filters: ArrayList<ScanFilter?>? = null
         if (args.services.size > 0) {
@@ -203,14 +203,10 @@ class BleClient(private val activity: Activity, private val plugin: BleClientPlu
 
         scanCb = object: ScanCallback(){
             private fun sendResult(result: ScanResult){
-                var name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    result.device.alias
-                } else {
-                    result.device.name
-                };
-                if (name==null){
-                    name = result.scanRecord?.deviceName
-                }
+                // The adapter's cached name/alias can belong to the previous
+                // firmware. Prefer what the watch is advertising now.
+                var name = result.scanRecord?.deviceName ?: result.device.name
+                if (name == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) name = result.device.alias
                 if (name == null) {
                     name = ""
                 }
@@ -226,7 +222,9 @@ class BleClient(private val activity: Activity, private val plugin: BleClientPlu
                     result.scanRecord?.serviceData,
                     result.scanRecord?.serviceUuids
                 )
-                this@BleClient.plugin.devices[device.address] = Peripheral(this@BleClient.activity, result.device, this@BleClient.plugin)
+                this@BleClient.plugin.devices.getOrPut(device.address) {
+                    Peripheral(this@BleClient.activity, result.device, this@BleClient.plugin)
+                }
                 val res = JSObject()
                 res.put("result", device.toJsObject())
                 args.onDevice!!.send(res)

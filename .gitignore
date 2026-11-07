@@ -15,6 +15,7 @@ local.properties
 src-tauri/tauri.local.conf.json
 
 .android/
+.kotlin/
 **/*.keystore
 
 # Devenv
