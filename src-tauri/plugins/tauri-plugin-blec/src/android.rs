@@ -11,6 +11,10 @@ use btleplug::{
 use futures::Stream;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::Deserialize;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex as StdMutex,
+};
 use std::time::Duration;
 use std::{
     collections::{BTreeSet, HashMap},
@@ -32,6 +36,41 @@ use crate::models::BondingPeripheral;
 type Result<T> = std::result::Result<T, btleplug::Error>;
 
 static HANDLE: OnceCell<PluginHandle<Wry>> = OnceCell::new();
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+static SESSION_IDS: Lazy<StdMutex<HashMap<BDAddr, u64>>> =
+    Lazy::new(|| StdMutex::new(HashMap::new()));
+const PLUGIN_TIMEOUT: Duration = Duration::from_secs(15);
+const RETIRE_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionParams {
+    address: BDAddr,
+    session_id: u64,
+}
+
+fn session_for_address(address: BDAddr) -> SessionParams {
+    let ids = SESSION_IDS.lock().unwrap_or_else(|e| e.into_inner());
+    SessionParams {
+        address,
+        session_id: ids.get(&address).copied().unwrap_or(0),
+    }
+}
+
+async fn retire_session(session: SessionParams) {
+    let retirement = tokio::task::spawn_blocking(move || {
+        get_handle().run_mobile_plugin::<()>("retire_connection", session)
+    });
+    if !matches!(
+        tokio::time::timeout(RETIRE_TIMEOUT, retirement).await,
+        Ok(Ok(Ok(())))
+    ) {
+        tracing::warn!(
+            "Native retirement pending/failed for session {}",
+            session.session_id
+        );
+    }
+}
 
 fn get_handle() -> &'static PluginHandle<Wry> {
     HANDLE.get().expect("plugin handle not initialized")
@@ -348,15 +387,18 @@ impl btleplug::api::Peripheral for Peripheral {
         struct ServicesResult {
             result: Vec<ResService>,
         }
-        let res: ServicesResult = get_handle()
-            .run_mobile_plugin(
-                "services",
-                ConnectParams {
-                    address: self.address,
-                },
-            )
-            .map_err(|e| btleplug::Error::RuntimeError(e.to_string()))
-            .expect("failed to get services");
+        let res: ServicesResult = match get_handle().run_mobile_plugin(
+            "services",
+            ConnectParams {
+                address: self.address,
+            },
+        ) {
+            Ok(services) => services,
+            Err(error) => {
+                tracing::warn!("Service snapshot unavailable for {}: {error}", self.address);
+                return BTreeSet::new();
+            }
+        };
         let mut services = BTreeSet::new();
         for s in res.result {
             let mut characteristics = BTreeSet::new();
@@ -398,13 +440,15 @@ impl btleplug::api::Peripheral for Peripheral {
     }
 
     async fn connect(&self) -> Result<()> {
-        call_plugin_with_timeout(
-            "connect",
-            ConnectParams {
-                address: self.address,
-            },
-        )
-        .await?;
+        let session = SessionParams {
+            address: self.address,
+            session_id: NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed),
+        };
+        SESSION_IDS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(self.address, session.session_id);
+        call_plugin_with_timeout("connect", session, session).await?;
         info!("connected to: {:?}", self.address);
         debug!("requesting mtu");
         let mtu: MtuResponse = call_plugin_with_timeout(
@@ -413,6 +457,7 @@ impl btleplug::api::Peripheral for Peripheral {
                 address: self.address,
                 mtu: 517,
             },
+            session,
         )
         .await?;
         info!("mtu set to: {:?}", mtu.mtu);
@@ -425,6 +470,7 @@ impl btleplug::api::Peripheral for Peripheral {
             ConnectParams {
                 address: self.address,
             },
+            session_for_address(self.address),
         )
         .await?;
         Ok(())
@@ -436,6 +482,7 @@ impl btleplug::api::Peripheral for Peripheral {
             ConnectParams {
                 address: self.address,
             },
+            session_for_address(self.address),
         )
         .await?;
         debug!("discover services plugin call returned");
@@ -565,14 +612,23 @@ async fn call_plugin_with_timeout<
 >(
     func: &'static str,
     params: P,
+    session: SessionParams,
 ) -> Result<R> {
     let handle = tokio::task::spawn_blocking(move || {
         get_handle()
             .run_mobile_plugin(func, params)
             .map_err(|e| btleplug::Error::RuntimeError(e.to_string()))
     });
-    tokio::time::timeout(Duration::from_secs(5), handle)
-        .await
-        .map_err(|_| btleplug::Error::RuntimeError(format!("timeout during {func}")))?
-        .map_err(|e| btleplug::Error::RuntimeError(format!("tokio join error: {e}")))?
+    match tokio::time::timeout(PLUGIN_TIMEOUT, handle).await {
+        Ok(result) => {
+            result.map_err(|e| btleplug::Error::RuntimeError(format!("tokio join error: {e}")))?
+        }
+        Err(_) => {
+            retire_session(session).await;
+            Err(btleplug::Error::RuntimeError(format!(
+                "timeout during {func}; retiring GATT session {}",
+                session.session_id
+            )))
+        }
+    }
 }

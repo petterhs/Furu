@@ -34,6 +34,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build Furu Dev APK
         run: pnpm tauri android build --debug --apk --target aarch64 --ci
+      - name: Test native GATT session retirement
+        working-directory: src-tauri/gen/android
+        run: ./gradlew :tauri-plugin-blec:testDebugUnitTest
       - uses: actions/upload-artifact@v4
         with:
           name: furu-dev-pr-${{ github.event.pull_request.number }}-${{ github.sha }}

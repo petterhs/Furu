@@ -126,6 +126,7 @@ class BleClient(private val activity: Activity, private val plugin: BleClientPlu
                     perm
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
+                if (!askIfDenied) return false
                 if (firstPermissionRequest(perm) || activity.shouldShowRequestPermissionRationale(perm)) {
                     // this will open the permission dialog
                     markFirstPermissionRequest(perm)

@@ -225,6 +225,13 @@ impl Handler {
         on_disconnect: OnDisconnectHandler,
         _allow_ibeacons: bool,
     ) -> Result<(), Error> {
+        #[cfg(not(target_os = "android"))]
+        if self.devices.lock().await.is_empty() {
+            self.discover(None, 1000, ScanFilter::None, _allow_ibeacons)
+                .await?;
+        }
+        // Join the old scan task before registering a direct-MAC fallback.
+        self.stop_scan().await?;
         #[cfg(target_os = "android")]
         {
             let mut devices = self.devices.lock().await;
@@ -235,13 +242,6 @@ impl Handler {
                 );
             }
         }
-        #[cfg(not(target_os = "android"))]
-        if self.devices.lock().await.is_empty() {
-            self.discover(None, 1000, ScanFilter::None, _allow_ibeacons)
-                .await?;
-        }
-        // cancel any running discovery
-        let _ = self.stop_scan().await;
         // connect to the given address
         // try up to 3 times before returning an error
         let mut connected = Ok(());
@@ -285,13 +285,16 @@ impl Handler {
     }
 
     async fn connect_services(&self, state: &mut HandlerState) -> Result<(), Error> {
+        state.characs.clear();
         let device = self.connected_dev.lock().await;
         let device = device.as_ref().ok_or(Error::NoDeviceConnected)?;
         debug!("starting service discovery");
         device.discover_services().await?;
         debug!("service discovery done");
         let services = device.services();
-        state.characs.clear();
+        if services.is_empty() || !device.is_connected().await? {
+            return Err(Error::ConnectionFailed);
+        }
         for s in services {
             for c in &s.characteristics {
                 state.characs.push(c.clone());
@@ -580,10 +583,12 @@ impl Handler {
     /// # Errors
     /// Returns an error if stopping the scan fails
     pub async fn stop_scan(&self) -> Result<(), Error> {
-        self.adapter.stop_scan().await?;
-        if let Some(handle) = self.state.lock().await.scan_task.take() {
+        let scan_task = self.state.lock().await.scan_task.take();
+        if let Some(handle) = scan_task {
             handle.abort();
+            let _ = handle.await;
         }
+        self.adapter.stop_scan().await?;
         self.send_scan_update(false).await;
         Ok(())
     }
@@ -824,12 +829,21 @@ impl Handler {
 
 async fn run_with_timeout<T: Send + Sync + 'static>(
     fut: impl Future<Output = Result<T, btleplug::Error>> + Send,
-    cmd: &str,
+    _cmd: &str,
 ) -> Result<T, Error> {
-    tokio::time::timeout(Duration::from_secs(5), fut)
-        .await
-        .map_err(|_| Error::Timeout(cmd.to_string()))?
-        .map_err(Error::Btleplug)
+    // Android bounds each IPC operation and retires its exact session on timeout.
+    // A separate 5 s wrapper would abandon connect + MTU negotiation mid-session.
+    #[cfg(target_os = "android")]
+    {
+        fut.await.map_err(Error::Btleplug)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        tokio::time::timeout(Duration::from_secs(5), fut)
+            .await
+            .map_err(|_| Error::Timeout(_cmd.to_string()))?
+            .map_err(Error::Btleplug)
+    }
 }
 
 async fn filter_peripherals(discovered: &mut Vec<Peripheral>, filter: &ScanFilter) {

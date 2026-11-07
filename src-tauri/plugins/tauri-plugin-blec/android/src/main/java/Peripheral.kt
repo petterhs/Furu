@@ -37,6 +37,14 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
     private var onDescriptorInvoke: Invoke? = null
     private var onMtuInvoke: Invoke? = null
     private var currentMtu = 517;
+    private val sessionLease = GattSessionLease()
+
+    fun retireSession(id: Long, complete: () -> Unit) {
+        callbackHandler.post {
+            if (sessionLease.retire(id)) failConnection("Rust retired GATT session $id")
+            complete()
+        }
+    }
     private val callbackHandler = Handler(Looper.getMainLooper())
     private val deadlines = mutableMapOf<String, Runnable>()
 
@@ -54,7 +62,8 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
             }
             if (expired && isCurrentGatt(client)) {
                 Log.w("FuruBleGatt", "GATT timeout: address=${device.address} operation=$key")
-                client.disconnect()
+                try { client.disconnect() }
+                catch (error: RuntimeException) { Log.w("FuruBleGatt", "Cannot disconnect expired client", error) }
                 failConnection("GATT timeout: $key")
             }
         }
@@ -67,13 +76,20 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
         val client = gatt
         gatt = null
         connected = false
+        sessionLease.disconnected()
         services = listOf()
         characteristics.clear()
         plugin.connected_devices.remove(device.address, this)
         rejectPending(reason)
         finishConnect(false, reason)
         sendEvent(Event.DeviceDisconnected)
-        client?.close()
+        closeClient(client)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun closeClient(client: BluetoothGatt?) {
+        try { client?.close() }
+        catch (error: RuntimeException) { Log.w("FuruBleGatt", "Cannot close GATT client", error) }
     }
 
     private fun isCurrentGatt(client: BluetoothGatt?): Boolean = client != null && client === gatt
@@ -127,7 +143,7 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
             Log.i("FuruBleGatt", "state address=${device.address} status=$status newState=$newState")
             if (!isCurrentGatt(gatt)) {
                 Log.w("FuruBleGatt", "ignoring callback from superseded GATT client")
-                gatt?.close()
+                closeClient(gatt)
                 return
             }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED && gatt != null) {
@@ -207,6 +223,22 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
         override fun onCharacteristicRead(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            @Suppress("DEPRECATION")
+            val value = characteristic.value ?: byteArrayOf()
+            onCharacteristicRead(gatt, characteristic, value, status)
+        }
+
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            @Suppress("DEPRECATION")
+            val value = characteristic.value ?: byteArrayOf()
+            onCharacteristicChanged(gatt, characteristic, value)
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
             status: Int
         ) {
@@ -265,11 +297,20 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
     }
 
     @SuppressLint("MissingPermission")
-    fun connect(invoke:Invoke) {
+    fun connect(invoke:Invoke, sessionId: Long) {
+        callbackHandler.post { connectOnHandler(invoke, sessionId) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun connectOnHandler(invoke: Invoke, sessionId: Long) {
+        if (!sessionLease.accept(sessionId)) {
+            invoke.reject("GATT session $sessionId was superseded or retired")
+            return
+        }
         println("connect android implementation called")
         val previous = this.gatt
         this.gatt = null
-        previous?.close()
+        closeClient(previous)
         rejectPending("GATT connection replaced")
         finishConnect(false, "GATT connection replaced")
         this.connected = false
@@ -283,16 +324,13 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
             }
         }
         // Dispatch callbacks on the same looper, after the GATT owner is assigned.
-        val handler = Handler(Looper.getMainLooper())
-        handler.post {
-            try {
-                this.gatt = this.device.connectGatt(activity, false, this.callback,
-                    BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK, handler)
-                if (this.gatt == null) finishConnect(false, "connectGatt returned null")
-                this.gatt?.let { armDeadline("connect", it, 5_000) }
-            } catch (error: RuntimeException) {
-                finishConnect(false, "connectGatt failed: ${error.message}")
-            }
+        try {
+            this.gatt = this.device.connectGatt(activity, false, this.callback,
+                BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK, callbackHandler)
+            if (this.gatt == null) finishConnect(false, "connectGatt returned null")
+            this.gatt?.let { armDeadline("connect", it, 5_000) }
+        } catch (error: RuntimeException) {
+            finishConnect(false, "connectGatt failed: ${error.message}")
         }
     }
 

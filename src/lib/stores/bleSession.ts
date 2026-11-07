@@ -863,9 +863,10 @@ export async function endScan(): Promise<void> {
 }
 
 const CONNECT_SCAN_TIMEOUT_MS = 15_000;
-// The native plugin makes up to three bounded connection attempts (5 s for
-// connect and 5 s for its event each, plus retry delays).
-const CONNECT_ATTEMPT_TIMEOUT_MS = 35_000;
+// Android bounds connect and MTU IPC separately (15 s each, plus targeted
+// retirement), up to three attempts, then service discovery. Keep the UI guard
+// outside that budget so it cannot abandon a still-owned native attempt.
+const CONNECT_ATTEMPT_TIMEOUT_MS = 150_000;
 const DFU_DISCONNECT_TIMEOUT_MS = 8_000;
 // Android can finish a write-without-response before the watch processes the
 // activation command. Give the watch a chance to reboot before closing GATT.

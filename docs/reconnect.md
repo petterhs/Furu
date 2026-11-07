@@ -18,6 +18,16 @@ before emitting its event. Native connect attempts expire after five seconds;
 GATT operations expire after ten seconds and retire the GATT client, so a missing
 callback cannot permanently retain the Rust session lock. Old-client callbacks
 are ignored. Android operation-start failures are rejected immediately.
+Rust IPC waits allow fifteen seconds, outside the native ten-second deadline.
+Connect and MTU each use this budget; Android has no shorter wrapper around
+the combined operation. The frontend's final guard is 150 seconds, outside
+three attempts plus discovery and cleanup; ordinary out-of-range connect
+failures still expire at the native five-second deadline. Rust timeouts retire
+their exact native session using a monotonic attempt ID. Late retirement cannot
+close a newer client or resurrect an abandoned queued connect. Service snapshots
+tolerate disconnection, and Android 26–32 reads/notifications use the same
+completion path as newer Android callbacks. Permission checks without prompting
+return before opening either a permission dialog or Settings.
 
 The Rust handler acquires state/device locks in a consistent order, clears old
 characteristic handles before discovery, and invokes disconnect callbacks after

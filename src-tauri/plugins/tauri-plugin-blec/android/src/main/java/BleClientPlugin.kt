@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 @InvokeArg
 class ConnectParams{
     val address: String = ""
+    val sessionId: Long = 0
 }
 
 @TauriPlugin
@@ -60,10 +61,18 @@ class BleClientPlugin(private val activity: Activity): Plugin(activity) {
                 Peripheral(activity, manager.adapter.getRemoteDevice(args.address), this)
             }
             this.connected_devices[args.address] = device
-            device.connect(invoke)
+            device.connect(invoke, args.sessionId)
         } catch (error: RuntimeException) {
             invoke.reject("Cannot connect to ${args.address}: ${error.message}")
         }
+    }
+
+    @Command
+    fun retire_connection(invoke: Invoke) {
+        val args = invoke.parseArgs(ConnectParams::class.java)
+        val device = this.devices[args.address]
+        if (device == null) invoke.resolve()
+        else device.retireSession(args.sessionId) { invoke.resolve() }
     }
 
     @Command
@@ -118,7 +127,9 @@ class BleClientPlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun services(invoke:Invoke){
         val args = invoke.parseArgs(ConnectParams::class.java)
-        val device = this.connected_devices[args.address]
+        // Retained owners expose an empty list after disconnect, rather than
+        // making the synchronous Rust service snapshot panic.
+        val device = this.devices[args.address]
         if (device == null){
             invoke.reject("Device not found")
             return
