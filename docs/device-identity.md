@@ -30,6 +30,11 @@ native capability session while connected. Polling, subscriptions and time sync
 then reconcile from the updated feature list. Older queued edits are skipped;
 profile changes are deferred during DFU. Device profile selection is disabled
 while flashing.
+Capability writes hold the shared BLE/DFU exclusion through native completion
+and publishing the new feature list. Connection finalization can configure its
+profile under its existing connection lock; deferred edits replay when the lock
+or DFU session ends. A failed save remains visible after the suggestion card
+has disappeared.
 
 This change does not yet unify InfiniTime's and Kongle's BLE addresses or migrate
 existing separate entries/history. That requires the coordinated firmware/GATT

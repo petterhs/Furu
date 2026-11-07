@@ -154,8 +154,13 @@
           <button class="btn btn-sm preset-filled-primary-500" disabled={profileAnswerPending} onclick={() => answerSuggestion(true)}>Use {profileLabel(suggestion.detectedProfileId)}</button>
           <button class="btn btn-sm preset-tonal-surface" disabled={profileAnswerPending} onclick={() => answerSuggestion(false)}>Keep my profile</button>
         </div>
-        {#if profileAnswerError}<p role="alert" class="text-sm text-error-500">{profileAnswerError}</p>{/if}
       </section>
+    {/if}
+    {#if profileAnswerError}
+      <div role="alert" class="card mb-4 break-words border border-error-500 p-4 text-sm text-error-500">
+        Profile choice could not be saved: {profileAnswerError}
+        <button class="btn btn-sm mt-2 preset-tonal-surface" onclick={() => { profileAnswerError = null; }}>Dismiss</button>
+      </div>
     {/if}
     {@render children()}
   </main>

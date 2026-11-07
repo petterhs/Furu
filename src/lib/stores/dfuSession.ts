@@ -1,4 +1,5 @@
 import { get, writable } from "svelte/store";
+import { BleOperationGate } from "$lib/bleOperationGate";
 
 export type DfuSession = {
   deviceId: string;
@@ -14,11 +15,12 @@ export const dfuInProgress = writable(false);
 export const dfuCancelable = writable(false);
 /** Progress and terminal result outlive the device route that started the update. */
 export const dfuSession = writable<DfuSession | null>(null);
-let bleMutationInProgress = false;
+const operationGate = new BleOperationGate();
+export const bleOperationsReleased = writable(0);
 let dfuAbortController: AbortController | null = null;
 
 export function beginDfuSession(deviceId: string, deviceName: string): boolean {
-  if (get(dfuInProgress) || bleMutationInProgress) return false;
+  if (!operationGate.beginDfu()) return false;
   dfuAbortController = new AbortController();
   dfuSession.set({ deviceId, deviceName, phase: "selecting_package", percent: 0, outcome: "running", error: null });
   dfuInProgress.set(true);
@@ -27,6 +29,7 @@ export function beginDfuSession(deviceId: string, deviceName: string): boolean {
 }
 
 export function endDfuSession(): void {
+  operationGate.endDfu();
   dfuCancelable.set(false);
   dfuInProgress.set(false);
   dfuAbortController = null;
@@ -65,11 +68,19 @@ export function isDfuSessionActive(): boolean {
 }
 
 export function beginBleMutation(): boolean {
-  if (get(dfuInProgress) || bleMutationInProgress) return false;
-  bleMutationInProgress = true;
-  return true;
+  return operationGate.beginMutation();
 }
 
 export function endBleMutation(): void {
-  bleMutationInProgress = false;
+  operationGate.endMutation();
+  bleOperationsReleased.update((revision) => revision + 1);
+}
+
+export function beginCapabilityUpdate(connectionFinalization: boolean): boolean {
+  return operationGate.beginCapabilities(connectionFinalization);
+}
+
+export function endCapabilityUpdate(): void {
+  operationGate.endCapabilities();
+  bleOperationsReleased.update((revision) => revision + 1);
 }

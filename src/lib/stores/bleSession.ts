@@ -48,7 +48,8 @@ import {
 } from "$lib/ble/hrMeasurement";
 import type { DeviceInformation } from "$lib/types/deviceInformation";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
-import { beginBleMutation, endBleMutation, isDfuSessionActive, dfuInProgress } from "$lib/stores/dfuSession";
+import { beginBleMutation, endBleMutation, isDfuSessionActive, dfuInProgress,
+  beginCapabilityUpdate, endCapabilityUpdate, bleOperationsReleased } from "$lib/stores/dfuSession";
 
 export type ConnectOptions = {
   /** When true, this connection attempt is from the auto-reconnect loop (not the user tapping Connect). */
@@ -272,9 +273,22 @@ async function applySessionProfileAfterConnect(
   // Firmware observations must not change merely because a user edits auto rules.
   const detected = resolveProfileIdFromDeviceName(advertisementName, defaultNameRules());
   await recordDetectedProfile(connectAddress, detected);
-  await reconcileSessionProfile();
+  // This scope owns the connection mutation lock. Allow capability writes to
+  // finish under that lock, including edits queued during finalization.
+  connectionProfileFinalization = true;
+  try {
+    let pending = reconcileSessionProfile();
+    for (;;) {
+      await pending;
+      if (pending === profileConfigurationQueue) break;
+      pending = profileConfigurationQueue;
+    }
+  } finally {
+    connectionProfileFinalization = false;
+  }
 }
 
+let connectionProfileFinalization = false;
 let profileConfigurationKey = "";
 let profileConfigurationRevision = 0;
 let profileConfigurationQueue: Promise<void> = Promise.resolve();
@@ -307,7 +321,7 @@ function reconcileSessionProfile(): Promise<void> {
     bleAddressesEqual(get(selectedAddress) ?? "", connectAddress);
   profileConfigurationQueue = profileConfigurationQueue.then(async () => {
     if (!current()) return;
-    if (isDfuSessionActive()) {
+    if (!beginCapabilityUpdate(connectionProfileFinalization)) {
       profileConfigurationKey = "";
       return;
     }
@@ -320,7 +334,8 @@ function reconcileSessionProfile(): Promise<void> {
     } catch (error) {
       pushLog(`ble_set_active_capabilities failed (${profileId}): ${String(error)}`);
       if (current()) {
-        profileConfigurationKey = "";
+        // Do not retry a failed write on its own release notification.
+        // A changed preference, feature list or connection will retry it.
         try {
           await invoke("ble_set_active_capabilities", { profileId: ProfileId.unknown, featureIds: [] });
           if (current()) {
@@ -331,6 +346,9 @@ function reconcileSessionProfile(): Promise<void> {
           pushLog(`profile fallback failed: ${String(fallbackError)}`);
         }
       }
+    } finally {
+      // Retain exclusion through both the native write and feature publication.
+      endCapabilityUpdate();
     }
   });
   return profileConfigurationQueue;
@@ -343,6 +361,7 @@ function wireSessionProfileReconciliation(): void {
   rememberedDevices.subscribe(run);
   deviceProfileCatalog.subscribe(run);
   dfuInProgress.subscribe(run);
+  bleOperationsReleased.subscribe(run);
 }
 
 function reconcileCtsSyncTimer(): void {
@@ -928,6 +947,10 @@ export function subscribeConnectionState(handler: (connected: boolean) => void):
 }
 
 export async function setActiveProfile(profileId: string): Promise<void> {
+  if (!beginCapabilityUpdate(false)) {
+    pushLog("profile change blocked by another BLE/DFU operation");
+    return;
+  }
   const featureIds = getFeatureIdsForProfileId(profileId);
   try {
     await invoke("ble_set_active_capabilities", { profileId, featureIds });
@@ -936,6 +959,8 @@ export async function setActiveProfile(profileId: string): Promise<void> {
     pushLog(`active profile: ${profileId}`);
   } catch (error) {
     pushLog(`ble_set_active_capabilities error: ${String(error)}`);
+  } finally {
+    endCapabilityUpdate();
   }
 }
 
