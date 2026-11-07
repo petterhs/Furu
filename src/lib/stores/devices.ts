@@ -4,9 +4,43 @@ import { readRememberedDevices, writeRememberedDevices } from "$lib/persistence/
 import type { RememberedDevice } from "$lib/types/device";
 import { bleAddressesEqual, deviceIdFromAddress } from "$lib/utils/deviceId";
 import { isDfuSessionActive } from "$lib/stores/dfuSession";
+import { observeProfile, profileSuggestionKey } from "$lib/profileObservation";
 
 export const rememberedDevices = writable<RememberedDevice[]>([]);
 export const devicesHydrated = writable(false);
+
+export function deviceDisplayName(device: RememberedDevice): string {
+  return device.nickname?.trim() || device.name;
+}
+
+export async function recordDetectedProfile(address: string, detected: string): Promise<void> {
+  const device = getRememberedByAddress(address);
+  if (!device) return;
+  const observation = observeProfile(device, device.profilePreference, detected);
+  if (observation === device) return;
+  await updateRememberedDevice(device.id, {
+    detectedProfileId: observation.detectedProfileId,
+    profileSuggestion: observation.profileSuggestion,
+    dismissedProfileSuggestions: observation.dismissedProfileSuggestions,
+  });
+}
+
+export async function answerProfileSuggestion(id: string, accept: boolean): Promise<void> {
+  if (isDfuSessionActive()) return;
+  const device = getRememberedById(id);
+  const suggestion = device?.profileSuggestion;
+  if (!device || !suggestion) return;
+  if (accept) {
+    await updateRememberedDevice(id, { profilePreference: suggestion.detectedProfileId, profileSuggestion: undefined });
+  } else {
+    await updateRememberedDevice(id, {
+      profileSuggestion: undefined,
+      dismissedProfileSuggestions: [...new Set([
+        ...(device.dismissedProfileSuggestions ?? []), profileSuggestionKey(suggestion),
+      ])],
+    });
+  }
+}
 
 export const CTS_SYNC_MIN_MINUTES = 5;
 export const CTS_SYNC_MAX_MINUTES = 1440;
@@ -111,11 +145,10 @@ export async function bindRememberedDevice(device: BleDevice): Promise<void> {
   const now = new Date().toISOString();
   const current = get(rememberedDevices);
   const address = device.address.trim();
+  const existing = current.find((candidate) => bleAddressesEqual(candidate.address, address));
   const nextDevice: RememberedDevice = {
     id: deviceIdFromAddress(address),
     address,
-    name: device.name || "Unknown device",
-    lastSeenAt: now,
     profilePreference: "auto",
     notificationsEnabled: true,
     currentTimeSyncEnabled: true,
@@ -125,6 +158,9 @@ export async function bindRememberedDevice(device: BleDevice): Promise<void> {
     replayMissedNotificationsOnReconnect: true,
     autoReconnectIntervalMinutes: AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
     autoReconnectMaxAttempts: AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT,
+    ...existing,
+    name: device.name || existing?.name || "Unknown device",
+    lastSeenAt: now,
   };
   const withoutCurrent = current.filter((d) => !bleAddressesEqual(d.address, address));
   const next = [nextDevice, ...withoutCurrent];
@@ -150,10 +186,16 @@ export async function updateRememberedDevice(
   id: string,
   patch: Partial<Omit<RememberedDevice, "id" | "address">>,
 ): Promise<void> {
+  if (patch.profilePreference !== undefined && isDfuSessionActive()) return;
   const current = get(rememberedDevices);
   const next = current.map((device) => {
     if (device.id !== id) return device;
     const merged: RememberedDevice = { ...device, ...patch };
+    if (patch.nickname !== undefined) merged.nickname = patch.nickname.trim().slice(0, 60);
+    if (patch.profilePreference !== undefined && patch.profilePreference !== device.profilePreference) {
+      merged.profileSuggestion = undefined;
+      merged.dismissedProfileSuggestions = [];
+    }
     if (patch.currentTimeSyncIntervalMinutes !== undefined) {
       merged.currentTimeSyncIntervalMinutes = clampCtsSyncIntervalMinutes(
         patch.currentTimeSyncIntervalMinutes,

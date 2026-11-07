@@ -4,19 +4,34 @@
   import { page } from "$app/state";
   import { ArrowLeft, Bug, Home, ScrollText, Settings } from "@lucide/svelte";
   import { Navigation } from "@skeletonlabs/skeleton-svelte";
-  import { initializeBleSession } from "$lib/stores/bleSession";
+  import { initializeBleSession, connected, selectedAddress, profiles } from "$lib/stores/bleSession";
   import { hydrateBatteryHistory } from "$lib/stores/batteryHistory";
   import { hydrateConnectionHistory } from "$lib/stores/connectionHistory";
-  import { hydrateRememberedDevices } from "$lib/stores/devices";
+  import { hydrateRememberedDevices, rememberedDevices, deviceDisplayName, answerProfileSuggestion } from "$lib/stores/devices";
+  import { bleAddressesEqual } from "$lib/utils/deviceId";
   import { hydrateAppSettings } from "$lib/stores/appSettings";
   import { hydrateNotificationFilters } from "$lib/stores/notificationFilters";
   import { requestPromptablePermissions } from "$lib/stores/permissions";
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
-  import { dfuCancelable, dfuSession, dismissDfuSession, requestDfuCancel } from "$lib/stores/dfuSession";
+  import { dfuCancelable, dfuSession, dfuInProgress, dismissDfuSession, requestDfuCancel } from "$lib/stores/dfuSession";
 
   let { children }: { children: Snippet } = $props();
   let appVersion = $state<string | null>(null);
+  let profileAnswerPending = $state(false);
+  let profileAnswerError = $state<string | null>(null);
+  const suggestedDevice = $derived(!$dfuInProgress && $connected && $selectedAddress
+    ? $rememberedDevices.find((device) => bleAddressesEqual(device.address, $selectedAddress!) && device.profileSuggestion)
+    : undefined);
+  const profileLabel = (id: string) => $profiles.find((profile) => profile.id === id)?.label ?? id;
+  async function answerSuggestion(accept: boolean): Promise<void> {
+    if (!suggestedDevice || profileAnswerPending) return;
+    profileAnswerPending = true;
+    profileAnswerError = null;
+    try { await answerProfileSuggestion(suggestedDevice.id, accept); }
+    catch (error) { profileAnswerError = String(error); }
+    finally { profileAnswerPending = false; }
+  }
 
   const pathname = $derived(page.url.pathname);
   const showBackButton = $derived(pathname !== "/home");
@@ -129,6 +144,19 @@
   </header>
 
   <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
+    {#if suggestedDevice?.profileSuggestion}
+      {@const suggestion = suggestedDevice.profileSuggestion}
+      <section class="card mb-4 space-y-3 border border-primary-500 p-4 preset-tonal-surface" aria-labelledby="profile-suggestion-title">
+        <h2 id="profile-suggestion-title" class="m-0 font-semibold">Firmware changed on {deviceDisplayName(suggestedDevice)}</h2>
+        <p class="m-0 text-sm">Detected {profileLabel(suggestion.detectedProfileId)}. Your selected profile is {profileLabel(suggestion.overrideProfileId)}. Switch to the detected profile?</p>
+        <p class="m-0 text-xs">Keeping your profile remembers this choice for this firmware/profile combination.</p>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-sm preset-filled-primary-500" disabled={profileAnswerPending} onclick={() => answerSuggestion(true)}>Use {profileLabel(suggestion.detectedProfileId)}</button>
+          <button class="btn btn-sm preset-tonal-surface" disabled={profileAnswerPending} onclick={() => answerSuggestion(false)}>Keep my profile</button>
+        </div>
+        {#if profileAnswerError}<p role="alert" class="text-sm text-error-500">{profileAnswerError}</p>{/if}
+      </section>
+    {/if}
     {@render children()}
   </main>
 
