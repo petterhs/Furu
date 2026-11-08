@@ -784,6 +784,19 @@ impl Handler {
         debug!("handling event: {event:?}");
         match event {
             CentralEvent::DeviceDisconnected(peripheral_id) => {
+                #[cfg(target_os = "android")]
+                {
+                    let current = self.connected_dev.lock().await.clone();
+                    if let Some(device) = current.filter(|d| d.id() == peripheral_id) {
+                        // The mobile event can have waited in a queue while a new
+                        // same-MAC GATT session was established. Do not tear down
+                        // a link that the native owner still reports connected.
+                        if device.is_connected().await.unwrap_or(false) {
+                            warn!("Ignoring delayed disconnect for active native link {peripheral_id}");
+                            return Ok(());
+                        }
+                    }
+                }
                 self.handle_disconnect(peripheral_id).await?;
             }
             CentralEvent::DeviceConnected(peripheral_id) => {

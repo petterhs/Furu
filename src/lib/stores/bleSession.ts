@@ -837,7 +837,7 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
     connectError.set({ address: requested, message });
     pushLog(`connect error: ${message}`);
   } finally {
-    if (!accepted) connectingAddress.set(null);
+    if (!accepted || (get(connected) && bleAddressesEqual(get(selectedAddress) ?? "", requested))) connectingAddress.set(null);
     endBleMutation();
   }
 }

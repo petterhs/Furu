@@ -44,6 +44,10 @@ impl Policies {
             .iter()
             .find(|p| p.address.eq_ignore_ascii_case(address))
     }
+    pub fn removes_target(&self, next: &Self, address: &str) -> bool {
+        self.device(address).is_some() && next.device(address).is_none()
+    }
+
     pub fn profile(&self, address: &str, name: &str) -> Profile {
         let preference = self
             .device(address)
@@ -184,5 +188,24 @@ mod tests {
         assert_eq!(p.profile("aa:bb", "Kongle").id, "custom");
         p.devices[0].profile_preference = "deleted".into();
         assert!(p.profile("aa:bb", "Kongle").feature_ids.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+    #[test]
+    fn unrelated_configuration_does_not_forget_a_first_manual_connection() {
+        let empty = Policies::default();
+        assert!(!empty.removes_target(&empty, "AA:BB"));
+        let known = Policies {
+            devices: vec![DevicePolicy {
+                address: "AA:BB".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(known.removes_target(&empty, "aa:bb"));
+        assert!(!known.removes_target(&known, "AA:BB"));
     }
 }

@@ -363,7 +363,7 @@ impl Actor {
             match wake {
                 Wake::Command(None) | Wake::Link(None) => break,
                 Wake::Command(Some(command)) => self.command(command).await,
-                Wake::Link(Some(false)) if self.linked => {
+                Wake::Link(Some(false)) if self.linked && !handler.is_connected() => {
                     let intentional = self.paused
                         || self.ota_cleanup
                         || self.cleanup_required
@@ -572,18 +572,17 @@ impl Actor {
     async fn command(&mut self, command: Command) {
         match command {
             Command::Policies(policies, reply) => {
-                if self.paused
-                    && self
-                        .target
-                        .as_deref()
-                        .is_some_and(|a| policies.device(a).is_none())
-                {
+                let forgotten = self
+                    .target
+                    .as_deref()
+                    .is_some_and(|a| self.saved.policies.removes_target(&policies, a));
+                if self.paused && forgotten {
                     let _ = reply.send(Err("Cannot forget a device during DFU".into()));
                     return;
                 }
                 self.saved.policies = policies;
-                if let Some(address) = &self.target {
-                    if self.saved.policies.device(address).is_none() {
+                if self.target.is_some() {
+                    if forgotten {
                         self.invalidate();
                         self.target = None;
                         self.lost_link("disconnected (device forgotten)");
