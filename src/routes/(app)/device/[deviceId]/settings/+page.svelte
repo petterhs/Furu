@@ -174,6 +174,7 @@
       <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
         Clamped between {AUTO_RECONNECT_INTERVAL_MIN_MINUTES} and {AUTO_RECONNECT_INTERVAL_MAX_MINUTES} minutes (default
         {AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES}).
+        The first reconnect attempt starts after five seconds; this interval applies to retries after a failed attempt.
       </p>
 
       <label class="label mt-4">

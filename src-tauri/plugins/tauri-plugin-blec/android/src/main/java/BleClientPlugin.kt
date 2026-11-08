@@ -3,6 +3,10 @@ package com.plugin.blec
 
 import Peripheral
 import android.app.Activity
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.Context
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -11,17 +15,19 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 
 @InvokeArg
 class ConnectParams{
     val address: String = ""
+    val sessionId: Long = 0
 }
 
 @TauriPlugin
 class BleClientPlugin(private val activity: Activity): Plugin(activity) {
-    var devices: MutableMap<String, Peripheral> = mutableMapOf();
-    var connected_devices: MutableMap<String, Peripheral> = mutableMapOf();
+    val devices = ConcurrentHashMap<String, Peripheral>()
+    val connected_devices = ConcurrentHashMap<String, Peripheral>()
     var eventChannel: Channel? = null;
     private val client = BleClient(activity,this)
 
@@ -42,15 +48,31 @@ class BleClientPlugin(private val activity: Activity): Plugin(activity) {
     }
 
     @Command
+    @SuppressLint("MissingPermission")
     fun connect(invoke: Invoke){
         val args = invoke.parseArgs(ConnectParams::class.java)
-        val device = this.devices[args.address]
-        if (device == null){
-            invoke.reject("Device not found")
+        if (!BluetoothAdapter.checkBluetoothAddress(args.address)) {
+            invoke.reject("Invalid Bluetooth address")
             return
         }
-        this.connected_devices[args.address] = device;
-        device.connect(invoke)
+        try {
+            val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val device = this.devices.getOrPut(args.address) {
+                Peripheral(activity, manager.adapter.getRemoteDevice(args.address), this)
+            }
+            this.connected_devices[args.address] = device
+            device.connect(invoke, args.sessionId)
+        } catch (error: RuntimeException) {
+            invoke.reject("Cannot connect to ${args.address}: ${error.message}")
+        }
+    }
+
+    @Command
+    fun retire_connection(invoke: Invoke) {
+        val args = invoke.parseArgs(ConnectParams::class.java)
+        val device = this.devices[args.address]
+        if (device == null) invoke.resolve()
+        else device.retireSession(args.sessionId) { invoke.resolve() }
     }
 
     @Command
@@ -105,7 +127,9 @@ class BleClientPlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun services(invoke:Invoke){
         val args = invoke.parseArgs(ConnectParams::class.java)
-        val device = this.connected_devices[args.address]
+        // Retained owners expose an empty list after disconnect, rather than
+        // making the synchronous Rust service snapshot panic.
+        val device = this.devices[args.address]
         if (device == null){
             invoke.reject("Device not found")
             return

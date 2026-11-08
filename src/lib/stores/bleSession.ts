@@ -17,6 +17,7 @@ import type { ProfileInfo } from "$lib/bleContract";
 import { FeatureId, ProfileId } from "$lib/bleContract";
 import { appSettings } from "$lib/stores/appSettings";
 import { notificationFilters } from "$lib/stores/notificationFilters";
+import { ReconnectCycle } from "$lib/reconnect";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
 import { defaultNameRules } from "$lib/persistence/deviceProfilesStore";
 import {
@@ -121,90 +122,32 @@ let deviceInformationReadInFlight = false;
 let userRequestedDisconnect = false;
 /** Cleared when the native connection channel reports `connected`, or when a connect attempt fails. */
 let pendingConnectSource: "user" | "auto" | null = null;
-let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let autoReconnectAttempts = 0;
-
-function autoReconnectDelayMsForAddress(address: string): number {
-  const dev = getRememberedByAddress(address);
-  return clampAutoReconnectIntervalMinutes(dev?.autoReconnectIntervalMinutes) * 60_000;
-}
-
-function cancelAutoReconnectCycle(): void {
-  if (autoReconnectTimer !== null) {
-    clearTimeout(autoReconnectTimer);
-    autoReconnectTimer = null;
-  }
-  autoReconnectAttempts = 0;
-}
-
-function scheduleAutoReconnect(address: string): boolean {
-  const trimmed = address.trim();
-  if (!trimmed) return false;
-  const dev = getRememberedByAddress(trimmed);
-  if (!dev?.autoReconnect) {
-    pushLog("BLE: auto-reconnect skipped (disabled in device settings)");
-    return false;
-  }
-  if (autoReconnectTimer !== null) {
-    clearTimeout(autoReconnectTimer);
-    autoReconnectTimer = null;
-  }
-  autoReconnectAttempts = 0;
-  const delayMs = autoReconnectDelayMsForAddress(trimmed);
-  pushLog(`BLE: auto-reconnect scheduled in ${Math.round(delayMs / 60_000)} min`);
-  autoReconnectTimer = setTimeout(() => {
-    void runAutoReconnectAttempt(trimmed);
-  }, delayMs);
-  return true;
-}
-
-async function runAutoReconnectAttempt(address: string): Promise<void> {
-  autoReconnectTimer = null;
-  if (get(connected) || get(connectingAddress)) {
-    autoReconnectAttempts = 0;
-    return;
-  }
-  const dev = getRememberedByAddress(address);
-  if (!dev?.autoReconnect) {
-    autoReconnectAttempts = 0;
-    void syncAndroidBleKeepalive(false);
-    return;
-  }
-  const selected = get(selectedAddress);
-  if (!selected || !bleAddressesEqual(selected, address)) {
-    pushLog("BLE: auto-reconnect cancelled (selected device changed)");
-    autoReconnectAttempts = 0;
-    void syncAndroidBleKeepalive(false);
-    return;
-  }
-  const maxFailed = clampAutoReconnectMaxAttempts(dev.autoReconnectMaxAttempts);
-  autoReconnectAttempts += 1;
-  if (maxFailed > 0 && autoReconnectAttempts > maxFailed) {
-    pushLog(`BLE: auto-reconnect stopped after ${maxFailed} failed attempts (limit reached)`);
-    autoReconnectAttempts = 0;
-    void syncAndroidBleKeepalive(false);
-    return;
-  }
-  const attemptLabel =
-    maxFailed > 0 ? `${autoReconnectAttempts}/${maxFailed}` : `${autoReconnectAttempts} (no limit)`;
-  const direct = autoReconnectAttempts % 2 === 1;
-  pushLog(`BLE: auto-reconnect attempt ${attemptLabel} (${direct ? "direct" : "scan"})`);
-  try {
+const reconnectCycle = new ReconnectCycle({
+  settings: (address) => {
+    const device = getRememberedByAddress(address);
+    return device ? {
+      enabled: device.autoReconnect,
+      retryDelayMs: clampAutoReconnectIntervalMinutes(device.autoReconnectIntervalMinutes) * 60_000,
+      maxFailures: clampAutoReconnectMaxAttempts(device.autoReconnectMaxAttempts),
+    } : undefined;
+  },
+  state: (address) => {
+    const selected = get(selectedAddress);
+    if (!selected || !bleAddressesEqual(selected, address)) return "stop";
+    if (get(connected)) return "connected";
+    if (get(connectingAddress) || isDfuSessionActive()) return "busy";
+    return "ready";
+  },
+  connect: async (address, direct) => {
     await connectTo(address, { isAutoReconnect: true, skipScan: direct });
-  } catch (error) {
-    pushLog(`BLE: auto-reconnect error: ${String(error)}`);
-  }
-  if (!get(connected)) {
-    const retryMs = autoReconnectDelayMsForAddress(address);
-    pushLog(`BLE: auto-reconnect retry in ${Math.round(retryMs / 60_000)} min`);
-    autoReconnectTimer = setTimeout(() => {
-      void runAutoReconnectAttempt(address);
-    }, retryMs);
-  } else {
-    autoReconnectAttempts = 0;
-    pushLog("BLE: auto-reconnect succeeded");
-  }
-}
+    return get(connected) && bleAddressesEqual(get(selectedAddress) ?? "", address);
+  },
+  stopped: () => { void syncAndroidBleKeepalive(get(connected)); },
+  log: pushLog,
+});
+
+function cancelAutoReconnectCycle(): void { reconnectCycle.cancel(); }
+function scheduleAutoReconnect(address: string): boolean { return reconnectCycle.start(address.trim()); }
 
 function recordConnectionHistoryConnected(detail: string): void {
   queueMicrotask(() => {
@@ -1002,9 +945,10 @@ export async function endScan(): Promise<void> {
 }
 
 const CONNECT_SCAN_TIMEOUT_MS = 15_000;
-// The native plugin makes up to three bounded connection attempts (5 s for
-// connect and 5 s for its event each, plus retry delays).
-const CONNECT_ATTEMPT_TIMEOUT_MS = 35_000;
+// Android bounds connect and MTU IPC separately (15 s each, plus targeted
+// retirement), up to three attempts, then service discovery. Keep the UI guard
+// outside that budget so it cannot abandon a still-owned native attempt.
+const CONNECT_ATTEMPT_TIMEOUT_MS = 150_000;
 const DFU_DISCONNECT_TIMEOUT_MS = 8_000;
 // Android can finish a write-without-response before the watch processes the
 // activation command. Give the watch a chance to reboot before closing GATT.
@@ -1097,7 +1041,7 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
   connectingAddress.set(requested);
   connectError.set(null);
   try {
-    const ok = await checkPermissions(true);
+    const ok = await checkPermissions(!isAutoReconnect);
     permissionsOk.set(ok);
     if (!ok) {
       connectError.set({ address: requested, message: "BLE permissions not granted." });

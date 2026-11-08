@@ -4,6 +4,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 pnpm install --frozen-lockfile
 pnpm check
 node --test tests/dfuFile.test.mjs
+node --test tests/reconnect.test.mjs
 node --test tests/profileObservation.test.mjs
 node --test tests/bleOperationGate.test.mjs
 pnpm build
