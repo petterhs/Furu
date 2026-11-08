@@ -163,6 +163,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
             target: None,
             retry: Retry::default(),
             due: None,
+            boot_until: None,
             job: None,
             paused: false,
             cleanup_required: false,
@@ -201,6 +202,7 @@ struct Actor {
     target: Option<String>,
     retry: Retry,
     due: Option<Instant>,
+    boot_until: Option<Instant>,
     job: Option<Job>,
     paused: bool,
     cleanup_required: bool,
@@ -268,6 +270,7 @@ impl Actor {
     fn invalidate(&mut self) {
         self.retry.cancel();
         self.due = None;
+        self.boot_until = None;
         if let Some(job) = &self.job {
             job.cancel.store(true, Ordering::SeqCst);
         }
@@ -418,6 +421,7 @@ impl Actor {
                             self.linked = true;
                             self.state.status = "connected".into();
                             self.due = None;
+                            self.boot_until = None;
                             let profile = self
                                 .saved
                                 .policies
@@ -456,11 +460,19 @@ impl Actor {
                                 let error = result.err().unwrap_or_else(|| {
                                     "Connection ended before discovery completed".into()
                                 });
+                                let booting =
+                                    self.boot_until.is_some_and(|until| Instant::now() < until);
                                 let next = self
                                     .target
                                     .as_deref()
                                     .and_then(|a| self.saved.policies.device(a))
-                                    .and_then(|p| self.retry.failed(p));
+                                    .and_then(|p| {
+                                        if booting {
+                                            self.retry.failed_during_boot(p)
+                                        } else {
+                                            self.retry.failed(p)
+                                        }
+                                    });
                                 self.due = next.map(|delay| Instant::now() + delay);
                                 self.state.status = if next.is_some() {
                                     "reconnecting"
@@ -676,8 +688,9 @@ impl Actor {
                 self.grace = activated;
                 self.manual = false;
                 self.retry.start(true);
+                self.boot_until = activated.then(|| Instant::now() + Duration::from_secs(120));
                 self.due = if self.retry_allowed() {
-                    Some(Instant::now() + Duration::from_secs(5))
+                    Some(Instant::now() + Duration::from_secs(if activated { 15 } else { 5 }))
                 } else {
                     None
                 };

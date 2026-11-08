@@ -105,9 +105,18 @@ impl Retry {
         scan
     }
     pub fn failed(&mut self, p: &DevicePolicy) -> Option<Duration> {
+        self.failure_delay(p, false)
+    }
+    pub fn failed_during_boot(&mut self, p: &DevicePolicy) -> Option<Duration> {
+        self.failure_delay(p, true)
+    }
+    fn failure_delay(&mut self, p: &DevicePolicy, booting: bool) -> Option<Duration> {
         self.failures += 1;
         if !p.enabled || (p.max_failures > 0 && self.failures >= p.max_failures) {
             return None;
+        }
+        if booting {
+            return Some(Duration::from_secs(10));
         }
         let base = p.retry_delay_ms.clamp(5_000, 3_600_000);
         Some(Duration::from_millis(
@@ -207,5 +216,27 @@ mod update_tests {
         };
         assert!(known.removes_target(&empty, "aa:bb"));
         assert!(!known.removes_target(&known, "AA:BB"));
+    }
+}
+
+#[cfg(test)]
+mod boot_tests {
+    use super::*;
+    #[test]
+    fn expected_reboot_retries_quickly_without_ignoring_user_limits() {
+        let p = DevicePolicy {
+            enabled: true,
+            retry_delay_ms: 300_000,
+            max_failures: 3,
+            ..Default::default()
+        };
+        let mut retry = Retry::default();
+        assert_eq!(retry.failed_during_boot(&p), Some(Duration::from_secs(10)));
+        assert_eq!(retry.failed(&p), Some(Duration::from_secs(300)));
+        assert_eq!(retry.failed_during_boot(&p), None);
+        assert_eq!(
+            Retry::default().failed_during_boot(&DevicePolicy::default()),
+            None
+        );
     }
 }

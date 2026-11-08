@@ -35,7 +35,12 @@ operation timeout; the UI does not claim an abandoned attempt is connected.
 Native DFU reserves the link before subscribing/writing, suppressing other connects
 and notification forwarding. A drop guard ends the pause on success, error or
 cancellation. Successful activation gets a reboot grace period before cleanup;
-then auto-reconnect, when enabled, begins with a scan. Activation requested is not
+then auto-reconnect, when enabled, begins with a scan scheduled 15 seconds after
+activation. For the first two minutes after activation, failures retry after ten
+seconds instead of immediately using the normal (potentially five-minute) delay.
+The configured failure limit and disabled reconnect still apply; manual cancellation
+clears this boot window. Successful connection ends it. Failed/cancelled transfers
+use the ordinary retry policy. Activation requested is not
 proof of installation and never confirms an MCUBoot trial.
 
 The OTA cache invalidation and Repair connection from
