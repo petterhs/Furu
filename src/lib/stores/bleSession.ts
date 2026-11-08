@@ -1097,6 +1097,29 @@ export async function connectTo(address: string, options?: ConnectOptions): Prom
   }
 }
 
+/** Repair Android's cached service handles, preserving the remembered device. */
+export async function repairServiceCache(address: string): Promise<void> {
+  if (!beginBleMutation()) throw new Error("Wait for the current Bluetooth operation to finish.");
+  if (get(selectedAddress) && !bleAddressesEqual(get(selectedAddress)!, address)) {
+    endBleMutation();
+    throw new Error("Disconnect the other device before repairing this connection.");
+  }
+  userRequestedDisconnect = true;
+  cancelAutoReconnectCycle();
+  try {
+    await invoke("ble_repair_service_cache", { address });
+    connected.set(false);
+    selectedAddress.set(null);
+    pendingConnectSource = null;
+    await syncAndroidBleKeepalive(false);
+    pushLog(`BLE: retired stale services for ${address}; reconnecting with fresh discovery`);
+  } finally {
+    userRequestedDisconnect = false;
+    endBleMutation();
+  }
+  await connectTo(address);
+}
+
 export async function disconnectDevice(): Promise<void> {
   if (!beginBleMutation()) {
     pushLog("disconnect: blocked while another BLE or DFU operation is in progress");

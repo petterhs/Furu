@@ -34,6 +34,9 @@ characteristic handles before discovery, and invokes disconnect callbacks after
 releasing session locks. Mobile event delivery does not block on a full bounded
 channel while cleanup is awaiting GATT completion.
 
+After a firmware change, Android service-cache repair and OTA invalidation are
+documented in [Android service cache](android-service-cache.md).
+
 This still uses JS timers and the Android foreground keepalive service. Timing
 while the WebView is suspended is not guaranteed. Reconnect after a process kill
 and changing to a different firmware MAC are not implemented here. A future

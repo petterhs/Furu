@@ -31,6 +31,12 @@ pub fn start_session() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
     Ok(guard)
 }
 
+pub fn reserve_maintenance() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
+    DFU_LOCK
+        .try_lock()
+        .map_err(|_| "Cannot repair a connection while DFU is running".into())
+}
+
 /// The receiver times out after cancellation; never activate an incomplete image.
 pub fn request_dfu_cancel() {
     DFU_CANCEL.store(true, Ordering::SeqCst);
@@ -260,6 +266,18 @@ async fn transfer<T: Transport>(
 }
 
 pub async fn run_dfu(app: &AppHandle, handler: &Handler, image: DfuImage) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let device = handler
+            .connected_device()
+            .await
+            .map_err(|e| e.to_string())?;
+        tauri_plugin_blec::invalidate_android_service_cache(&device.address, false).await?;
+        eprintln!(
+            "[dfu] marked services stale for next connection to {}",
+            device.address
+        );
+    }
     let cp = registry::NORDIC_DFU_CONTROL_POINT_CHAR_UUID;
     let (tx, rx) = mpsc::channel(32);
     let overflow = std::sync::Arc::new(AtomicBool::new(false));
@@ -531,7 +549,11 @@ mod tests {
     fn serializes_sessions_and_releases_guard() {
         let session = start_session().unwrap();
         assert!(start_session().is_err());
+        assert!(reserve_maintenance().is_err());
         drop(session);
+        let maintenance = reserve_maintenance().unwrap();
+        assert!(start_session().is_err());
+        drop(maintenance);
         assert!(start_session().is_ok());
     }
 }
