@@ -3,6 +3,9 @@ package com.plugin.blec
 
 import Peripheral
 import android.app.Activity
+import android.content.Intent
+import androidx.activity.result.ActivityResult
+import app.tauri.annotation.ActivityCallback
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -31,6 +34,28 @@ class BleClientPlugin(private val activity: Activity): Plugin(activity) {
     val connected_devices = ConcurrentHashMap<String, Peripheral>()
     var eventChannel: Channel? = null;
     private val client = BleClient(activity,this)
+
+    @Command
+    @SuppressLint("MissingPermission")
+    fun ensure_adapter_enabled(invoke: Invoke) {
+        activity.runOnUiThread {
+            try {
+                val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+                val adapter = manager.adapter
+                if (adapter == null) invoke.reject("No Bluetooth adapter available")
+                else if (adapter.isEnabled) invoke.resolve()
+                else startActivityForResult(invoke, Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), "enableBluetoothResult")
+            } catch (error: RuntimeException) { invoke.reject("Cannot enable Bluetooth: ${error.message}") }
+        }
+    }
+
+    @ActivityCallback
+    @SuppressLint("MissingPermission")
+    fun enableBluetoothResult(invoke: Invoke, result: ActivityResult) {
+        val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        if (result.resultCode == Activity.RESULT_OK && manager.adapter?.isEnabled == true) invoke.resolve()
+        else invoke.reject("Bluetooth was not enabled")
+    }
 
     @Command
     fun start_scan(invoke: Invoke) {

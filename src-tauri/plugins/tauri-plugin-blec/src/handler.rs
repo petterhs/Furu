@@ -8,7 +8,10 @@ use futures::{Stream, StreamExt};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tauri::async_runtime;
 use tokio::sync::{mpsc, watch, Mutex};
@@ -225,6 +228,22 @@ impl Handler {
         on_disconnect: OnDisconnectHandler,
         _allow_ibeacons: bool,
     ) -> Result<(), Error> {
+        self.connect_cancellable(
+            address,
+            on_disconnect,
+            _allow_ibeacons,
+            &AtomicBool::new(false),
+        )
+        .await
+    }
+
+    pub async fn connect_cancellable(
+        &'static self,
+        address: &str,
+        on_disconnect: OnDisconnectHandler,
+        _allow_ibeacons: bool,
+        cancelled: &AtomicBool,
+    ) -> Result<(), Error> {
         #[cfg(not(target_os = "android"))]
         if self.devices.lock().await.is_empty() {
             self.discover(None, 1000, ScanFilter::None, _allow_ibeacons)
@@ -246,6 +265,10 @@ impl Handler {
         // try up to 3 times before returning an error
         let mut connected = Ok(());
         for i in 0..3 {
+            if cancelled.load(Ordering::SeqCst) {
+                let _ = self.disconnect().await;
+                return Err(Error::ConnectionFailed);
+            }
             if let Err(e) = self.connect_device(address).await {
                 if i < 2 {
                     warn!("Failed to connect device, retrying in 1s: {e}");
@@ -259,10 +282,19 @@ impl Handler {
             }
         }
         if let Err(e) = connected {
+            // A connect/MTU failure can leave a native client alive. Retire it
+            // before dropping the Rust owner so the next attempt starts clean.
+            if let Err(cleanup) = self.disconnect().await {
+                warn!("Cleanup after failed connection: {cleanup}");
+            }
             *self.connected_dev.lock().await = None;
             let _ = self.connected_tx.send(false);
             error!("Failed to connect device: {e}");
             return Err(e);
+        }
+        if cancelled.load(Ordering::SeqCst) {
+            let _ = self.disconnect().await;
+            return Err(Error::ConnectionFailed);
         }
         let discovery = {
             let mut state = self.state.lock().await;
@@ -752,6 +784,19 @@ impl Handler {
         debug!("handling event: {event:?}");
         match event {
             CentralEvent::DeviceDisconnected(peripheral_id) => {
+                #[cfg(target_os = "android")]
+                {
+                    let current = self.connected_dev.lock().await.clone();
+                    if let Some(device) = current.filter(|d| d.id() == peripheral_id) {
+                        // The mobile event can have waited in a queue while a new
+                        // same-MAC GATT session was established. Do not tear down
+                        // a link that the native owner still reports connected.
+                        if device.is_connected().await.unwrap_or(false) {
+                            warn!("Ignoring delayed disconnect for active native link {peripheral_id}");
+                            return Ok(());
+                        }
+                    }
+                }
                 self.handle_disconnect(peripheral_id).await?;
             }
             CentralEvent::DeviceConnected(peripheral_id) => {

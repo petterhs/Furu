@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { firmwareLabel } from "$lib/firmwareLabel";
   import Battery from "@lucide/svelte/icons/battery";
   import Footprints from "@lucide/svelte/icons/footprints";
   import Heart from "@lucide/svelte/icons/heart";
   import { FeatureId } from "$lib/bleContract";
   import {
     activeFeatureIds,
+    activeProfileId,
+    profiles,
     batteryPercent,
     connectError,
     connectTo,
@@ -42,8 +45,13 @@
             <div class="font-bold text-[color:var(--color-primary-700-300)]">{deviceDisplayName(device)}</div>
             <p class="m-0 mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">{device.address}</p>
             {#if isConnectedDevice(device.address) && $deviceInformation?.firmwareRevision?.trim()}
-              <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">Firmware v{$deviceInformation.firmwareRevision.trim()}</p>
+              <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">{firmwareLabel(device, $deviceInformation)}</p>
             {/if}
+            <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
+              {#if isConnectedDevice(device.address)}
+                Profile: {$profiles.find((profile) => profile.id === $activeProfileId)?.label ?? $activeProfileId} ({device.profilePreference === "auto" ? "Auto" : "Manual"})
+              {:else}{firmwareLabel(device, null)}{/if}
+            </p>
             {#if isConnectedDevice(device.address) && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
               <div class="mt-2 flex flex-col gap-1 text-sm text-[color:var(--color-surface-900-100)]">
                 {#if $batteryPercent !== null}

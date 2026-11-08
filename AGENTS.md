@@ -20,8 +20,8 @@ Cross-platform **Tauri 2** companion app for **PineTime** / **PineTime Pro** (ta
 
 ## BLE architecture (current)
 
-- **Scan, connect, disconnect, permissions** are driven from the **frontend** via `@mnlphlp/plugin-blec` (same connection the Rust side sees).
-- **Rust** (`src-tauri/src/ble/`) owns feature gating and Nordic legacy application DFU. `ble_dfu_flash_package` accepts a manifest-based application ZIP or a matching BIN/DAT pair. Transfers use 20-byte packets on every platform, validate on the device before activation, emit `dfu-progress`, and support best-effort cancellation. A backend session lock prevents overlapping updates. Activation requested does not mean installation confirmed.
+- **Connect, disconnect, reconnect and OTA pauses** are owned by `src-tauri/src/ble/connection.rs`. Frontend commands request intent and observe native snapshots; do not add a second JS retry timer. Explicit permission/Bluetooth enable dialogs run before a manual connect request. Debug scan/read tools still use `@mnlphlp/plugin-blec`. See `docs/reconnect.md`.
+- **Rust** (`src-tauri/src/ble/`) owns feature gating and Nordic legacy application DFU. The UI accepts application DFU ZIPs only; `ble_dfu_flash_package` retains BIN/DAT parsing for backend compatibility. Transfers use 20-byte packets on every platform, validate on the device before activation, emit `dfu-progress`, and support best-effort cancellation. A backend session lock prevents overlapping updates. Activation requested does not mean installation confirmed.
 - New product behaviour (time sync, DFU, HR, …) should grow as **Rust modules** calling `tauri_plugin_blec::get_handler()`, not as ad-hoc UUIDs in Svelte.
 
 ## Documentation and single source of truth
@@ -37,14 +37,14 @@ When you add or change a capability: update **catalog**, **Rust `FeatureId`**, a
 
 `ProfileId` in Rust / TS is for **in-app** gating and UX (`unknown`, `infinitime`, …). **Firmware support** is documented in the catalog’s **firmware matrix**, not by overloading profile names.
 
-**Device Profiles (Settings):** the app also persists a **device profile catalog** (`device-profiles.json` via Tauri Store): built-in and **custom** profiles, each with a user-editable **subset of known feature IDs**, plus name-detection rules for `auto`. On connect, the UI sends `ble_set_active_capabilities` so the Rust session’s active feature list matches that catalog. **Feature ID strings** remain defined in the catalog / `bleContract.ts` / `FeatureId` — the profile editor only toggles which of those IDs apply; adding a **new** capability still requires the usual catalog + Rust + TS alignment.
+**Device Profiles (Settings):** the app also persists a **device profile catalog** (`device-profiles.json` via Tauri Store): built-in and **custom** profiles, each with a user-editable **subset of known feature IDs**, plus name-detection rules for `auto`. The UI mirrors the catalog and preferences to the native connection manager; Rust applies capabilities before publishing a ready connection. **Feature ID strings** remain defined in the catalog / `bleContract.ts` / `FeatureId` — the profile editor only toggles which of those IDs apply; adding a **new** capability still requires the usual catalog + Rust + TS alignment.
 
 ## Android / Nix
 
 - **`src-tauri/tauri.conf.json`** — `bundle.android.minSdkVersion` is **26** (required by `tauri-plugin-blec`).
 - **`devenv.nix`** — Android **platforms 36 and 34** (plugin library targets API 34; app uses 36).
 - Generated Gradle under `src-tauri/gen/android/`; syncing `compileSdk` / `targetSdk` with `devenv.nix` comments avoids surprise SDK installs.
-- **Background BLE** — Local plugin **`tauri-plugin-ble-keepalive`** (`src-tauri/plugins/tauri-plugin-ble-keepalive/`) starts a **`connectedDevice` foreground service** with a **persistent notification** when the UI observes a BLE connection (Android 13+ also needs **notification runtime permission**). This keeps the process in a policy-compliant posture when the app is not in the foreground; it is **not** a substitute for robust native-side reconnect logic long term. JS-driven start/stop mirrors connection state today; moving ownership to Rust/Kotlin is a follow-up if reconnect must survive heavy throttling.
+- **Background BLE** — `tauri-plugin-ble-keepalive` provides the Android `connectedDevice` foreground service and disconnect notifications. Rust's connection owner drives them and retries independently of the WebView. Preferences, connection intent and recent transitions survive normal process relaunch; Android force-stop/service-only restart does not recreate the activity-bound BLE plugin. See `docs/reconnect.md` for policy and hardware checks.
 
 ## Commands (quick reference)
 

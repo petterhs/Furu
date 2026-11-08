@@ -57,6 +57,14 @@ fn session_for_address(address: BDAddr) -> SessionParams {
     }
 }
 
+pub(crate) async fn ensure_adapter_enabled() -> Result<()> {
+    // Deliberately no connect/GATT deadline while a person decides in the dialog.
+    tokio::task::spawn_blocking(|| get_handle().run_mobile_plugin::<()>(
+        "ensure_adapter_enabled", serde_json::Value::Null
+    )).await.map_err(|e| btleplug::Error::RuntimeError(e.to_string()))?
+        .map_err(|e| btleplug::Error::RuntimeError(e.to_string()))
+}
+
 pub(crate) async fn invalidate_service_cache(address: &str, retire: bool) -> Result<()> {
     let address: BDAddr = address
         .parse()

@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_blec::models::WriteType;
 
 use super::ans;
@@ -13,20 +13,10 @@ use super::session;
 
 /// Retire stale Android GATT handles without forgetting the saved device.
 #[tauri::command]
-pub async fn ble_repair_service_cache(address: String) -> Result<(), String> {
-    let _maintenance = super::nordic_dfu::reserve_maintenance()?;
-    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
-    tauri_plugin_blec::invalidate_android_service_cache(&address, true).await?;
-    // Native retirement rejects waiters first; then reconcile the Rust owner.
-    if let Ok(device) = handler.connected_device().await {
-        if device.address.eq_ignore_ascii_case(&address) {
-            match handler.disconnect().await {
-                Ok(()) | Err(tauri_plugin_blec::Error::NoDeviceConnected) => {}
-                Err(error) => return Err(error.to_string()),
-            }
-        }
-    }
-    Ok(())
+pub async fn ble_repair_service_cache(app: AppHandle, address: String) -> Result<(), String> {
+    app.state::<super::connection::ConnectionManager>()
+        .connect(address, true, true)
+        .await
 }
 
 #[tauri::command]
@@ -88,13 +78,6 @@ pub fn ble_set_notification_forwarding_enabled(enabled: bool) -> Result<(), Stri
 pub fn ble_set_active_device_notifications_enabled(enabled: bool) -> Result<(), String> {
     let mut s = session::global().lock().map_err(|e| e.to_string())?;
     s.active_device_notifications_enabled = enabled;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn ble_set_connection_state(connected: bool) -> Result<(), String> {
-    let mut s = session::global().lock().map_err(|e| e.to_string())?;
-    s.connection_active = connected;
     Ok(())
 }
 
@@ -252,7 +235,15 @@ pub async fn ble_dfu_flash_package(app: AppHandle, input: DfuFlashInput) -> Resu
         input.firmware_bin_path.as_deref().map(std::path::Path::new),
         input.init_dat_path.as_deref().map(std::path::Path::new),
     )?;
-    super::nordic_dfu::run_dfu(&app, handler, image).await
+    let manager = app.state::<super::connection::ConnectionManager>();
+    let mut pause = manager.pause().await?;
+    let result = super::nordic_dfu::run_dfu(&app, handler, image).await;
+    if result.is_ok() {
+        pause.activation_requested();
+    }
+    // Dropping this guard schedules cleanup/reconnect even after errors/cancellation.
+    drop(pause);
+    result
 }
 
 /// Best-effort: sets a flag the DFU loop checks between writes and while waiting for notifications. Does not abort mid–ATT write.

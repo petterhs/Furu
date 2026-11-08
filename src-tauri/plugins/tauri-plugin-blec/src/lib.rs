@@ -65,6 +65,14 @@ pub fn check_permissions(ask_if_denied: bool) -> Result<bool, Error> {
     return Ok(true);
 }
 
+/// Wait for an explicit user decision before starting any BLE work.
+pub async fn ensure_adapter_enabled() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return android::ensure_adapter_enabled().await.map_err(|e| e.to_string());
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
 /// Mark Android services stale for the next discovery, optionally retiring the
 /// current session. Other platforms do not expose this Android-specific repair.
 pub async fn invalidate_android_service_cache(address: &str, retire: bool) -> Result<(), String> {

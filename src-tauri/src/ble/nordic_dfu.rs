@@ -31,12 +31,6 @@ pub fn start_session() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
     Ok(guard)
 }
 
-pub fn reserve_maintenance() -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
-    DFU_LOCK
-        .try_lock()
-        .map_err(|_| "Cannot repair a connection while DFU is running".into())
-}
-
 /// The receiver times out after cancellation; never activate an incomplete image.
 pub fn request_dfu_cancel() {
     DFU_CANCEL.store(true, Ordering::SeqCst);
@@ -549,11 +543,7 @@ mod tests {
     fn serializes_sessions_and_releases_guard() {
         let session = start_session().unwrap();
         assert!(start_session().is_err());
-        assert!(reserve_maintenance().is_err());
         drop(session);
-        let maintenance = reserve_maintenance().unwrap();
-        assert!(start_session().is_err());
-        drop(maintenance);
         assert!(start_session().is_ok());
     }
 }

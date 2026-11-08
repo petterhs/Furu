@@ -1,3 +1,4 @@
+import { mergeNativeEvents, type NativeHistoryEvent } from "$lib/connectionEventMerge";
 import { get, writable } from "svelte/store";
 import {
   readConnectionHistory,
@@ -103,24 +104,26 @@ export async function appendConnectionEvent(
   connected: boolean,
   detail?: string,
   atIso = new Date().toISOString(),
+  nativeId?: number,
 ): Promise<void> {
   if (!deviceId.trim()) return;
   const nowMs = Date.now();
   const current = get(connectionHistoryByDevice);
   const next: ConnectionHistoryByDevice = { ...current };
   const existing = next[deviceId] ?? [];
+  if (nativeId !== undefined && existing.some((event) => event.nativeId === nativeId)) return;
   const last = existing[existing.length - 1];
   const tNew = Date.parse(atIso);
   if (
-    last &&
+    nativeId === undefined && last &&
     last.connected === connected &&
     Number.isFinite(tNew) &&
     Number.isFinite(Date.parse(last.at)) &&
-    tNew - Date.parse(last.at) < 750
+    tNew >= Date.parse(last.at) && tNew - Date.parse(last.at) < 750
   ) {
     return;
   }
-  const evt: ConnectionHistoryEvent = { at: atIso, connected, detail };
+  const evt: ConnectionHistoryEvent = { at: atIso, connected, detail, nativeId };
   const appended = pruneEvents([...existing, evt], nowMs);
   if (!appended.length) {
     delete next[deviceId];
@@ -129,4 +132,14 @@ export async function appendConnectionEvent(
   }
   connectionHistoryByDevice.set(next);
   await writeConnectionHistory(next);
+}
+
+/** Import a native event batch with one persistence write, retaining real timestamps. */
+export async function mergeNativeConnectionHistory(events: NativeHistoryEvent[]): Promise<void> {
+  const current = get(connectionHistoryByDevice);
+  const next = mergeNativeEvents(current, events);
+  if (next === current) return;
+  const normalized = normalizeHistory(next, Date.now());
+  await writeConnectionHistory(normalized);
+  connectionHistoryByDevice.set(normalized);
 }
