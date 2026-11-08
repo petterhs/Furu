@@ -20,11 +20,13 @@
     forgetRememberedDevice,
     rememberedDevices,
     updateRememberedDevice,
+    deviceDisplayName,
   } from "$lib/stores/devices";
   import { findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
   import { dfuInProgress } from "$lib/stores/dfuSession";
 
   const deviceId = $derived(page.params.deviceId);
+  let nameError = $state<string | null>(null);
   const remembered = $derived(findRememberedByDeviceRouteParam(deviceId, $rememberedDevices));
   const profilePreference = $derived(remembered?.profilePreference ?? "auto");
   const notificationsEnabled = $derived(remembered?.notificationsEnabled ?? true);
@@ -70,6 +72,13 @@
     await updateRememberedDevice(remembered.id, { profilePreference: value });
   }
 
+  async function onNameChange(value: string): Promise<void> {
+    if (!remembered) return;
+    nameError = null;
+    try { await updateRememberedDevice(remembered.id, { nickname: value }); }
+    catch (error) { nameError = String(error); }
+  }
+
   async function onForget(): Promise<void> {
     if (!remembered) return;
     if (!(await forgetRememberedDevice(remembered.id))) return;
@@ -81,13 +90,22 @@
   <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
     <h2 class="m-0 mb-3 text-base font-semibold">Device Settings</h2>
     {#if remembered}
-      <p class="m-0"><strong>{remembered.name}</strong></p>
+      <p class="m-0"><strong>{deviceDisplayName(remembered)}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{remembered.address}</p>
+
+      <label class="label mt-4">
+        <span class="label-text">Device name in Furu</span>
+        <input class="input" maxlength="60" value={remembered.nickname ?? ""}
+          placeholder={remembered.name} onchange={(e) => onNameChange(e.currentTarget.value)} />
+      </label>
+      <p class="m-0 mt-2 text-xs">BLE name: {remembered.name}. Leave empty to use this name.</p>
+      {#if nameError}<p class="text-error-500" role="alert">{nameError}</p>{/if}
 
       <label class="label mt-4">
         <span class="label-text">Device profile</span>
         <select
           class="select"
+          disabled={$dfuInProgress}
           value={profilePreference}
           onchange={(e) => onPreferenceChange((e.currentTarget as HTMLSelectElement).value)}
         >
