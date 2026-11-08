@@ -49,7 +49,7 @@
     stepCount,
   } from "$lib/stores/bleSession";
   import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
-  import { forgetRememberedDevice, rememberedDevices } from "$lib/stores/devices";
+  import { forgetRememberedDevice, rememberedDevices, deviceDisplayName } from "$lib/stores/devices";
   import {
     beginDfuSession,
     clearDfuSession,
@@ -370,7 +370,7 @@
   });
 
   async function onDfuStart(packageKind: "zip" | "bin", release: FirmwareRelease | null = null): Promise<void> {
-    if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known?.name ?? "PineTime")) return;
+    if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known ? deviceDisplayName(known) : "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
     let nativeTransferAttempted = false;
@@ -478,7 +478,7 @@
   async function onForget(): Promise<void> {
     if (dfuBusy || !known) return;
     const confirmed = window.confirm(
-      `Forget ${known.name}? This removes the device and its local data.`,
+      `Forget ${deviceDisplayName(known)}? This removes the device and its local data.`,
     );
     if (!confirmed) return;
     if (isCurrentDevice) {
@@ -502,7 +502,7 @@
       </a>
     </div>
     {#if known}
-      <p class="m-0"><strong>{known.name}</strong></p>
+      <p class="m-0"><strong>{deviceDisplayName(known)}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
       {#if isCurrentDevice && $deviceInformation?.firmwareRevision?.trim()}
         <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Firmware v{$deviceInformation.firmwareRevision.trim()}</p>

@@ -18,6 +18,7 @@ import { FeatureId, ProfileId } from "$lib/bleContract";
 import { appSettings } from "$lib/stores/appSettings";
 import { notificationFilters } from "$lib/stores/notificationFilters";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
+import { defaultNameRules } from "$lib/persistence/deviceProfilesStore";
 import {
   appendBatterySample,
   mergeBatterySamples,
@@ -30,6 +31,7 @@ import {
   clampCtsSyncIntervalMinutes,
   getRememberedByAddress,
   rememberedDevices,
+  recordDetectedProfile,
   touchRememberedDevice,
 } from "$lib/stores/devices";
 import {
@@ -46,7 +48,8 @@ import {
 } from "$lib/ble/hrMeasurement";
 import type { DeviceInformation } from "$lib/types/deviceInformation";
 import { bleAddressesEqual } from "$lib/utils/deviceId";
-import { beginBleMutation, endBleMutation, isDfuSessionActive } from "$lib/stores/dfuSession";
+import { beginBleMutation, endBleMutation, isDfuSessionActive, dfuInProgress,
+  beginCapabilityUpdate, endCapabilityUpdate, bleOperationsReleased } from "$lib/stores/dfuSession";
 
 export type ConnectOptions = {
   /** When true, this connection attempt is from the auto-reconnect loop (not the user tapping Connect). */
@@ -243,7 +246,13 @@ async function finalizeConnectSession(
 ): Promise<void> {
   selectedAddress.set(connectAddress);
   connectError.set(null);
-  if (getRememberedByAddress(connectAddress)) {
+  const remembered = getRememberedByAddress(connectAddress);
+  if (remembered) {
+    // Seed migrated entries from the previously saved BLE name before replacing it.
+    if (remembered.detectedProfileId === undefined) {
+      await recordDetectedProfile(connectAddress,
+        resolveProfileIdFromDeviceName(remembered.name, defaultNameRules()));
+    }
     await touchRememberedDevice(connectAddress, advertisementName);
   } else {
     await bindRememberedDevice({
@@ -261,32 +270,98 @@ async function applySessionProfileAfterConnect(
   connectAddress: string,
   advertisementName: string | undefined,
 ): Promise<void> {
+  // Firmware observations must not change merely because a user edits auto rules.
+  const detected = resolveProfileIdFromDeviceName(advertisementName, defaultNameRules());
+  await recordDetectedProfile(connectAddress, detected);
+  // This scope owns the connection mutation lock. Allow capability writes to
+  // finish under that lock, including edits queued during finalization.
+  connectionProfileFinalization = true;
+  try {
+    let pending = reconcileSessionProfile();
+    for (;;) {
+      await pending;
+      if (pending === profileConfigurationQueue) break;
+      pending = profileConfigurationQueue;
+    }
+  } finally {
+    connectionProfileFinalization = false;
+  }
+}
+
+let connectionProfileFinalization = false;
+let profileConfigurationKey = "";
+let profileConfigurationRevision = 0;
+let profileConfigurationQueue: Promise<void> = Promise.resolve();
+
+/** Serialize native changes, skip superseded edits, and update live feature consumers. */
+function reconcileSessionProfile(): Promise<void> {
+  const connectAddress = get(selectedAddress);
+  if (!get(connected) || !connectAddress) {
+    if (profileConfigurationKey) {
+      profileConfigurationKey = "";
+      profileConfigurationRevision++;
+    }
+    return profileConfigurationQueue;
+  }
+  if (isDfuSessionActive()) return profileConfigurationQueue;
   const remembered = getRememberedByAddress(connectAddress);
+  if (!remembered) return profileConfigurationQueue;
   let profileId: string = ProfileId.unknown;
   if (remembered?.profilePreference && remembered.profilePreference !== "auto") {
     profileId = remembered.profilePreference;
   } else if (remembered?.profilePreference === "auto") {
-    profileId = resolveProfileIdFromDeviceName(advertisementName, get(deviceProfileCatalog).nameRules);
+    profileId = resolveProfileIdFromDeviceName(remembered.name, get(deviceProfileCatalog).nameRules);
   }
-
   const featureIds = getFeatureIdsForProfileId(profileId);
-
-  try {
-    await invoke("ble_set_active_capabilities", { profileId, featureIds });
-    activeProfileId.set(profileId);
-    await refreshProfileState();
-    pushLog(`session profile: ${profileId} (${featureIds.length} features)`);
-  } catch (error) {
-    pushLog(`ble_set_active_capabilities failed (${profileId}), falling back to unknown: ${String(error)}`);
-    try {
-      const fb = getFeatureIdsForProfileId(ProfileId.unknown);
-      await invoke("ble_set_active_capabilities", { profileId: ProfileId.unknown, featureIds: fb });
-      activeProfileId.set(ProfileId.unknown);
-      await refreshProfileState();
-    } catch (e2) {
-      pushLog(`ble_set_active_capabilities (unknown) error: ${String(e2)}`);
+  const key = JSON.stringify([connectAddress.toLowerCase(), profileId, [...featureIds].sort()]);
+  if (key === profileConfigurationKey) return profileConfigurationQueue;
+  profileConfigurationKey = key;
+  const revision = ++profileConfigurationRevision;
+  const current = () => revision === profileConfigurationRevision && get(connected) &&
+    bleAddressesEqual(get(selectedAddress) ?? "", connectAddress);
+  profileConfigurationQueue = profileConfigurationQueue.then(async () => {
+    if (!current()) return;
+    if (!beginCapabilityUpdate(connectionProfileFinalization)) {
+      profileConfigurationKey = "";
+      return;
     }
-  }
+    try {
+      await invoke("ble_set_active_capabilities", { profileId, featureIds });
+      if (!current()) return;
+      activeProfileId.set(profileId);
+      activeFeatureIds.set([...featureIds]);
+      pushLog(`session profile: ${profileId} (${featureIds.length} features)`);
+    } catch (error) {
+      pushLog(`ble_set_active_capabilities failed (${profileId}): ${String(error)}`);
+      if (current()) {
+        // Do not retry a failed write on its own release notification.
+        // A changed preference, feature list or connection will retry it.
+        try {
+          await invoke("ble_set_active_capabilities", { profileId: ProfileId.unknown, featureIds: [] });
+          if (current()) {
+            activeProfileId.set(ProfileId.unknown);
+            activeFeatureIds.set([]);
+          }
+        } catch (fallbackError) {
+          pushLog(`profile fallback failed: ${String(fallbackError)}`);
+        }
+      }
+    } finally {
+      // Retain exclusion through both the native write and feature publication.
+      endCapabilityUpdate();
+    }
+  });
+  return profileConfigurationQueue;
+}
+
+function wireSessionProfileReconciliation(): void {
+  const run = () => { void reconcileSessionProfile(); };
+  connected.subscribe(run);
+  selectedAddress.subscribe(run);
+  rememberedDevices.subscribe(run);
+  deviceProfileCatalog.subscribe(run);
+  dfuInProgress.subscribe(run);
+  bleOperationsReleased.subscribe(run);
 }
 
 function reconcileCtsSyncTimer(): void {
@@ -854,6 +929,7 @@ export async function initializeBleSession(): Promise<void> {
   });
 
   wireCtsSyncReconciliation();
+  wireSessionProfileReconciliation();
   wireBatteryPollingReconciliation();
   wireStepPollingReconciliation();
   wireHeartRateSubscriptionReconciliation();
@@ -871,6 +947,10 @@ export function subscribeConnectionState(handler: (connected: boolean) => void):
 }
 
 export async function setActiveProfile(profileId: string): Promise<void> {
+  if (!beginCapabilityUpdate(false)) {
+    pushLog("profile change blocked by another BLE/DFU operation");
+    return;
+  }
   const featureIds = getFeatureIdsForProfileId(profileId);
   try {
     await invoke("ble_set_active_capabilities", { profileId, featureIds });
@@ -879,6 +959,8 @@ export async function setActiveProfile(profileId: string): Promise<void> {
     pushLog(`active profile: ${profileId}`);
   } catch (error) {
     pushLog(`ble_set_active_capabilities error: ${String(error)}`);
+  } finally {
+    endCapabilityUpdate();
   }
 }
 

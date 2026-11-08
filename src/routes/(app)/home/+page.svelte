@@ -15,7 +15,7 @@
     selectedAddress,
     stepCount,
   } from "$lib/stores/bleSession";
-  import { devicesHydrated, rememberedDevices } from "$lib/stores/devices";
+  import { devicesHydrated, rememberedDevices, deviceDisplayName } from "$lib/stores/devices";
   import { bleAddressesEqual } from "$lib/utils/deviceId";
 
   const isConnectedDevice = (address: string) =>
@@ -39,7 +39,7 @@
           href={`/device/${device.id}`}
         >
           <div class="p-4">
-            <div class="font-bold text-[color:var(--color-primary-700-300)]">{device.name}</div>
+            <div class="font-bold text-[color:var(--color-primary-700-300)]">{deviceDisplayName(device)}</div>
             <p class="m-0 mt-1 font-mono text-xs text-[color:var(--color-surface-700-300)]">{device.address}</p>
             {#if isConnectedDevice(device.address) && $deviceInformation?.firmwareRevision?.trim()}
               <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">Firmware v{$deviceInformation.firmwareRevision.trim()}</p>
