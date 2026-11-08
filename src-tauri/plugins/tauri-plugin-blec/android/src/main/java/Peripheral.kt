@@ -1,5 +1,6 @@
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -38,6 +39,43 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
     private var onMtuInvoke: Invoke? = null
     private var currentMtu = 517;
     private val sessionLease = GattSessionLease()
+    private val cachePreferences = activity.getSharedPreferences("ble-service-cache", Context.MODE_PRIVATE)
+    private val cacheKey = device.address.uppercase()
+    private var refreshedClient: BluetoothGatt? = null
+    private var refreshGeneration = 0L
+
+    /** Persist before OTA so a reboot/process restart cannot lose invalidation. */
+    fun invalidateServiceCache(id: Long, retire: Boolean, invoke: Invoke) {
+        callbackHandler.post {
+            val generation = cachePreferences.getLong(cacheKey, 0) + 1
+            if (!cachePreferences.edit().putLong(cacheKey, generation).commit()) {
+                invoke.reject("Cannot save pending service-cache refresh")
+                return@post
+            }
+            Log.i("FuruBleGatt", "services invalidated: address=${device.address} generation=$generation retire=$retire")
+            if (retire && sessionLease.retire(id)) {
+                try { gatt?.disconnect() }
+                catch (error: RuntimeException) { Log.w("FuruBleGatt", "Disconnect during repair failed", error) }
+                failConnection("Service cache repair requested")
+            }
+            invoke.resolve()
+        }
+    }
+
+    private fun markServiceCacheStale() {
+        cachePreferences.edit().putLong(cacheKey, cachePreferences.getLong(cacheKey, 0) + 1).apply()
+    }
+
+    /** Android has no public cache reset API. Fail explicitly if the hidden
+     * refresh method is unavailable, rather than claiming stale services are fresh. */
+    private fun refreshServiceCache(client: BluetoothGatt): Boolean = try {
+        val result = client.javaClass.getMethod("refresh").invoke(client) as? Boolean ?: false
+        Log.i("FuruBleGatt", "service cache refresh: address=${device.address} accepted=$result")
+        result
+    } catch (error: Exception) {
+        Log.w("FuruBleGatt", "Android service cache refresh unavailable", error)
+        false
+    }
 
     fun retireSession(id: Long, complete: () -> Unit) {
         callbackHandler.post {
@@ -75,6 +113,7 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
     private fun failConnection(reason: String) {
         val client = gatt
         gatt = null
+        refreshedClient = null
         connected = false
         sessionLease.disconnected()
         services = listOf()
@@ -159,21 +198,36 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
             }
         }
 
+        override fun onServiceChanged(gatt: BluetoothGatt) {
+            if (!isCurrentGatt(gatt)) return
+            Log.i("FuruBleGatt", "Service Changed: address=${device.address}; retiring stale handles")
+            markServiceCacheStale()
+            try { gatt.disconnect() }
+            catch (error: RuntimeException) { Log.w("FuruBleGatt", "Disconnect after Service Changed failed", error) }
+            failConnection("Remote GATT database changed; reconnect to rediscover services")
+        }
+
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (!isCurrentGatt(gatt)) return
             clearDeadline("services")
-            println("onServicesDiscovered status $status, services ${gatt.services}")
+            Log.i("FuruBleGatt", "services discovered: address=${device.address} status=$status refreshed=${refreshedClient === gatt}")
+            this@Peripheral.services = listOf()
+            this@Peripheral.characteristics.clear()
 
-            if (status != BluetoothGatt.GATT_SUCCESS) {
+            if (status != BluetoothGatt.GATT_SUCCESS || gatt.services.isEmpty()) {
                 this@Peripheral.services = listOf()
                 finishServices(
                     false,
                     "No services discovered. Status $status"
                 )
             } else {
+                if (refreshedClient === gatt && cachePreferences.getLong(cacheKey, 0) == refreshGeneration) {
+                    cachePreferences.edit().remove(cacheKey).apply()
+                }
                 this@Peripheral.services = gatt.services
                 for (s in gatt.services) {
                     for (c in s.characteristics) {
+                        Log.i("FuruBleGatt", "service=${s.uuid} characteristic=${c.uuid} instance=${c.instanceId} properties=${c.properties}")
                         this@Peripheral.characteristics[c.uuid] = c
                     }
                 }
@@ -316,6 +370,7 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
         this.connected = false
         this.services = listOf()
         this.characteristics.clear()
+        refreshedClient = null
         this.onConnectionStateChange = { success, error ->
             if(success){
                 invoke.resolve()
@@ -335,33 +390,41 @@ class Peripheral(private val activity: Activity, private val device: BluetoothDe
     }
 
     @SuppressLint("MissingPermission")
-    fun discoverServices(invoke:Invoke){
-        val gatt = this.gatt
-        if (gatt == null){
-            invoke.reject("No gatt server connected")
-            return
-        }
-        if (onServicesDiscovered != null) {
-            invoke.reject("Previous service discovery is still pending")
-            return
-        }
-        this.onServicesDiscovered={ success, error ->
-            if (success) {
-                invoke.resolve()
-            } else {
-                invoke.reject(error)
+    fun discoverServices(invoke: Invoke) {
+        callbackHandler.post {
+            val client = gatt
+            if (client == null || !connected) {
+                invoke.reject("No GATT server connected")
+                return@post
             }
-        }
-        armDeadline("services", gatt)
-
-        Handler(Looper.getMainLooper()).post(Runnable {
-            if (!gatt.discoverServices()) {
-                clearDeadline("services")
-                this.onServicesDiscovered = null
-                invoke.reject("failed to start service discovery");
+            if (onServicesDiscovered != null) {
+                invoke.reject("Previous service discovery is still pending")
+                return@post
             }
-            println("service discovery started")
-        })
+            val completion: (Boolean, String) -> Unit = { success, error ->
+                if (success) invoke.resolve() else invoke.reject(error)
+            }
+            onServicesDiscovered = completion
+            armDeadline("services", client)
+            refreshGeneration = cachePreferences.getLong(cacheKey, 0)
+            val needsRefresh = refreshGeneration != 0L
+            if (needsRefresh) {
+                if (!refreshServiceCache(client)) {
+                    failConnection("Android service cache refresh unavailable; pending refresh retained")
+                    return@post
+                }
+                refreshedClient = client
+            }
+            // refresh() has no completion callback; Nordic's BLE library also
+            // delays discovery after a cache reset. Keep the existing deadline.
+            callbackHandler.postDelayed({
+                if (isCurrentGatt(client) && connected && onServicesDiscovered === completion) {
+                    if (!client.discoverServices()) {
+                        failConnection("Failed to start service discovery")
+                    }
+                }
+            }, if (needsRefresh) 600L else 0L)
+        }
     }
 
     fun isConnected():Boolean {

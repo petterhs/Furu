@@ -41,6 +41,7 @@
     deviceInformationError,
     deviceInformationLoading,
     disconnectDevice,
+    repairServiceCache,
     disconnectAfterDfu,
     heartRateBpm,
     logBleDiagnostic,
@@ -475,6 +476,19 @@
     }
   }
 
+  let repairingServices = $state(false);
+  let serviceRepairError = $state<string | null>(null);
+  const android = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+
+  async function onRepairServices(): Promise<void> {
+    if (dfuBusy || repairingServices) return;
+    repairingServices = true;
+    serviceRepairError = null;
+    try { await repairServiceCache(resolvedAddress); }
+    catch (error) { serviceRepairError = String(error); }
+    finally { repairingServices = false; }
+  }
+
   async function onForget(): Promise<void> {
     if (dfuBusy || !known) return;
     const confirmed = window.confirm(
@@ -641,7 +655,7 @@
         <p class="m-0 mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Connection</p>
         <div class="flex flex-wrap gap-2">
           {#if isCurrentDevice}
-            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy} onclick={() => { if (!dfuBusy) void disconnectDevice(); }}>
+            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy || repairingServices} onclick={() => { if (!dfuBusy && !repairingServices) void disconnectDevice(); }}>
               Disconnect
             </button>
           {:else}
@@ -649,16 +663,26 @@
               class="btn btn-sm preset-filled-primary-500"
               type="button"
               onclick={() => { if (!dfuBusy) void connectTo(resolvedAddress); }}
-              disabled={isConnectingDevice || dfuBusy}
+              disabled={isConnectingDevice || dfuBusy || repairingServices}
             >
               {isConnectingDevice ? "Connecting…" : "Connect"}
             </button>
           {/if}
-          <button class="btn btn-sm preset-tonal-error" type="button" disabled={dfuBusy} onclick={() => void onForget()}>
+          {#if android}
+            <button class="btn btn-sm preset-tonal-surface" type="button"
+              disabled={dfuBusy || isConnectingDevice || repairingServices}
+              onclick={() => void onRepairServices()}>
+              {repairingServices ? "Repairing…" : "Repair connection"}
+            </button>
+          {/if}
+          <button class="btn btn-sm preset-tonal-error" type="button" disabled={dfuBusy || repairingServices} onclick={() => void onForget()}>
             Forget
           </button>
         </div>
       </div>
+      {#if serviceRepairError}
+        <p class="m-0 text-sm text-[color:var(--color-error-700-300)]" role="alert">{serviceRepairError}</p>
+      {/if}
       {#if isCurrentDevice && canDfu}
         <div class="border-t border-[color:var(--color-surface-200-800)] pt-4">
           <h3 class="m-0 text-sm font-semibold">Firmware update</h3>

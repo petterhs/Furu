@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 class ConnectParams{
     val address: String = ""
     val sessionId: Long = 0
+    val retire: Boolean = false
 }
 
 @TauriPlugin
@@ -64,6 +65,25 @@ class BleClientPlugin(private val activity: Activity): Plugin(activity) {
             device.connect(invoke, args.sessionId)
         } catch (error: RuntimeException) {
             invoke.reject("Cannot connect to ${args.address}: ${error.message}")
+        }
+    }
+
+    @Command
+    @SuppressLint("MissingPermission")
+    fun invalidate_service_cache(invoke: Invoke) {
+        val args = invoke.parseArgs(ConnectParams::class.java)
+        if (!BluetoothAdapter.checkBluetoothAddress(args.address)) {
+            invoke.reject("Invalid Bluetooth address")
+            return
+        }
+        try {
+            val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val device = devices.getOrPut(args.address) {
+                Peripheral(activity, manager.adapter.getRemoteDevice(args.address), this)
+            }
+            device.invalidateServiceCache(args.sessionId, args.retire, invoke)
+        } catch (error: RuntimeException) {
+            invoke.reject("Cannot invalidate services: ${error.message}")
         }
     }
 

@@ -57,6 +57,30 @@ fn session_for_address(address: BDAddr) -> SessionParams {
     }
 }
 
+pub(crate) async fn invalidate_service_cache(address: &str, retire: bool) -> Result<()> {
+    let address: BDAddr = address
+        .parse()
+        .map_err(|e| btleplug::Error::RuntimeError(format!("Invalid Bluetooth address: {e}")))?;
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Params {
+        address: BDAddr,
+        session_id: u64,
+        retire: bool,
+    }
+    let session = session_for_address(address);
+    call_plugin_with_timeout(
+        "invalidate_service_cache",
+        Params {
+            address,
+            session_id: session.session_id,
+            retire,
+        },
+        session,
+    )
+    .await
+}
+
 async fn retire_session(session: SessionParams) {
     let retirement = tokio::task::spawn_blocking(move || {
         get_handle().run_mobile_plugin::<()>("retire_connection", session)

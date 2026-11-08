@@ -24,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             ble::commands::ble_list_profiles,
+            ble::commands::ble_repair_service_cache,
             ble::commands::ble_get_active_profile,
             ble::commands::ble_set_active_profile,
             ble::commands::ble_set_active_capabilities,

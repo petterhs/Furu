@@ -65,6 +65,20 @@ pub fn check_permissions(ask_if_denied: bool) -> Result<bool, Error> {
     return Ok(true);
 }
 
+/// Mark Android services stale for the next discovery, optionally retiring the
+/// current session. Other platforms do not expose this Android-specific repair.
+pub async fn invalidate_android_service_cache(address: &str, retire: bool) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return android::invalidate_service_cache(address, retire)
+        .await
+        .map_err(|e| e.to_string());
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (address, retire);
+        Err("Service cache repair is only available on Android".into())
+    }
+}
+
 async fn handle_events() {
     let handler = get_handler().expect("failed to get handler");
     loop {

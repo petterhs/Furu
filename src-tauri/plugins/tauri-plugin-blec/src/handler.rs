@@ -264,20 +264,25 @@ impl Handler {
             error!("Failed to connect device: {e}");
             return Err(e);
         }
-        {
-            debug!("locking state");
+        let discovery = {
             let mut state = self.state.lock().await;
-            // set callback to run on disconnect
             state.on_disconnect = on_disconnect;
-            debug!("connecting services");
-            // discover service/characteristics
-            self.connect_services(&mut state).await?;
-            debug!("Starting notification task");
-            // start background task for notifications
-            state.listen_handle = Some(async_runtime::spawn(listen_notify(
-                self.connected_dev.lock().await.clone(),
-                self.notify_listeners.clone(),
-            )));
+            let discovery = self.connect_services(&mut state).await;
+            if discovery.is_ok() {
+                state.listen_handle = Some(async_runtime::spawn(listen_notify(
+                    self.connected_dev.lock().await.clone(),
+                    self.notify_listeners.clone(),
+                )));
+            }
+            discovery
+        };
+        if let Err(error) = discovery {
+            // Discovery can fail after a link was established. Release state
+            // before retiring it so disconnect callbacks can complete cleanup.
+            if let Err(cleanup) = self.disconnect().await {
+                warn!("Cleanup after service discovery failure: {cleanup}");
+            }
+            return Err(error);
         }
         self.send_connection_update(true).await;
         info!("connecting done");

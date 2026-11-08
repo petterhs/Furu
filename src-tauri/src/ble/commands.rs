@@ -11,6 +11,24 @@ use super::profiles;
 use super::registry;
 use super::session;
 
+/// Retire stale Android GATT handles without forgetting the saved device.
+#[tauri::command]
+pub async fn ble_repair_service_cache(address: String) -> Result<(), String> {
+    let _maintenance = super::nordic_dfu::reserve_maintenance()?;
+    let handler = tauri_plugin_blec::get_handler().map_err(|e| e.to_string())?;
+    tauri_plugin_blec::invalidate_android_service_cache(&address, true).await?;
+    // Native retirement rejects waiters first; then reconcile the Rust owner.
+    if let Ok(device) = handler.connected_device().await {
+        if device.address.eq_ignore_ascii_case(&address) {
+            match handler.disconnect().await {
+                Ok(()) | Err(tauri_plugin_blec::Error::NoDeviceConnected) => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn ble_list_profiles() -> Vec<profiles::ProfileInfo> {
     profiles::profile_infos()
