@@ -286,9 +286,10 @@ async function syncKongleBatteryHistory(address: string): Promise<void> {
   if (batteryHistoryReadInFlight ||
       (batteryHistorySyncedAddress === address && Date.now() - batteryHistorySyncedAt < BATTERY_HISTORY_SYNC_INTERVAL_MS)) return;
   batteryHistoryReadInFlight = true;
+  const token = nativeSessionToken;
   try {
     const samples = await invoke<BatteryHistorySample[]>("ble_read_kongle_battery_history");
-    if (!get(connected) || get(selectedAddress) !== address) return;
+    if (token !== nativeSessionToken || !get(connected) || get(selectedAddress) !== address) return;
     const remembered = getRememberedByAddress(address);
     if (remembered) await mergeBatterySamples(remembered.id, samples);
     batteryHistorySyncedAddress = address;
@@ -383,12 +384,15 @@ async function refreshBatteryLevel(): Promise<void> {
   }
   lastBatteryGateLog = null;
   batteryReadInFlight = true;
+  const token = nativeSessionToken;
+  const connectedAddress = get(selectedAddress);
+  const isCurrent = () => token === nativeSessionToken && get(connected) && get(selectedAddress) === connectedAddress;
   try {
-    const connectedAddress = get(selectedAddress);
     if (hasBatteryService) {
       try {
         pushLog("battery read: requesting BAS battery level");
         const level = await invoke<number>("ble_read_battery_percentage");
+        if (!isCurrent()) return;
         batteryPercent.set(level);
         batteryUpdatedAt.set(Date.now());
         batteryError.set(null);
@@ -399,14 +403,16 @@ async function refreshBatteryLevel(): Promise<void> {
         }
         pushLog(`battery read: ${level}%`);
       } catch (error) {
+        if (!isCurrent()) return;
         batteryError.set(`Battery read failed: ${String(error)}`);
         pushLog(`battery read error: ${String(error)}`);
       }
     }
+    if (!isCurrent()) return;
     if (hasKongleHistory) {
       try {
         const current = await invoke<KongleBatteryCurrent>("ble_read_kongle_battery_current");
-        if (get(connected) && get(selectedAddress) === connectedAddress) {
+        if (isCurrent()) {
           batteryVoltageMv.set(current.voltageMv);
           batteryCharging.set(current.charging);
           if (connectedAddress) {
@@ -420,10 +426,12 @@ async function refreshBatteryLevel(): Promise<void> {
       } catch (error) {
         pushLog(`Kongle battery telemetry read error: ${String(error)}`);
       }
+      if (!isCurrent()) return;
       if (connectedAddress) void syncKongleBatteryHistory(connectedAddress);
     }
   } finally {
     batteryReadInFlight = false;
+    if (token !== nativeSessionToken && get(connected)) queueMicrotask(() => { void refreshBatteryLevel(); });
   }
 }
 
@@ -488,18 +496,24 @@ async function refreshStepCount(): Promise<void> {
   }
   lastStepGateLog = null;
   stepReadInFlight = true;
+  const token = nativeSessionToken;
+  const address = get(selectedAddress);
+  const current = () => token === nativeSessionToken && get(connected) && get(selectedAddress) === address;
   try {
     pushLog("step count read: requesting Motion Service");
     const steps = await invoke<number>("ble_read_step_count");
+    if (!current()) return;
     stepCount.set(steps);
     stepCountUpdatedAt.set(Date.now());
     stepCountError.set(null);
     pushLog(`step count read: ${steps}`);
   } catch (error) {
+    if (!current()) return;
     stepCountError.set(`Step count read failed: ${String(error)}`);
     pushLog(`step count read error: ${String(error)}`);
   } finally {
     stepReadInFlight = false;
+    if (token !== nativeSessionToken && get(connected)) queueMicrotask(() => { void refreshStepCount(); });
   }
 }
 

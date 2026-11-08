@@ -424,7 +424,6 @@ impl Actor {
                                 .profile(&device.address, &self.state.name);
                             self.state.profile_id = profile.id;
                             self.state.feature_ids = profile.feature_ids;
-                            self.set_session(true);
                             if self.manual
                                 || self
                                     .saved
@@ -434,6 +433,7 @@ impl Actor {
                             {
                                 let _ = super::notification_forwarding::absorb_notification_backlog_watermark(self.app.clone()).await;
                             }
+                            self.set_session(true);
                             self.event(
                                 true,
                                 if self.manual {
