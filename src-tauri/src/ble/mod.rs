@@ -2,6 +2,8 @@
 
 mod ans;
 pub mod commands;
+pub mod connection;
+mod connection_policy;
 mod cts;
 mod dis;
 mod feature_id;

@@ -40,7 +40,7 @@ Run checks inside `devenv shell`: `pnpm check`, `pnpm build`, and `cargo check -
 
 The maintainer has tested OTA from Furu to a development PineTime running InfiniTime with the standard bootloader, including rollback to InfiniTime when the trial firmware was not confirmed. This does not establish Kongle-to-Kongle OTA support: Kongle still needs a DFU receiver and image confirmation.
 
-The DFU sender uses Nordic legacy application packages, 20-byte writes on all platforms, packet receipt checks, and device validation before activation. ZIP files must contain `manifest.json` naming one application BIN/DAT pair; bootloader and mixed packages are rejected. Raw BIN/DAT pairs are also accepted. Files are bounded and their CRC must match before BLE writes begin. Cancellation is best-effort; allow the watch to leave update mode before retrying.
+The DFU sender uses Nordic legacy application packages, 20-byte writes on all platforms, packet receipt checks, and device validation before activation. ZIP files must contain `manifest.json` naming one application BIN/DAT pair; bootloader and mixed packages are rejected. The local picker accepts ZIP only; BIN/DAT parsing remains an internal backend compatibility path. Files are bounded and their CRC must match before BLE writes begin. Cancellation is best-effort; allow the watch to leave update mode before retrying.
 
 Run `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib` for package and mock-transport regression tests. CI runs these tests and the frontend checks on PRs and pushes to `main`. It does not flash a watch.
 
@@ -51,3 +51,9 @@ Run the complete CI checks locally with `devenv --profile ci shell -- bash scrip
 For connection drops, Android log capture, and an overnight phone/watch trace, see [connection diagnostics](docs/connection-diagnostics.md).
 
 CI debug APKs, signed tagged releases, changelogs, and the in-app Kongle firmware feed are described in [Android builds and Kongle firmware feed](docs/releases.md).
+
+Connection scheduling, OTA reconnect and Android service-cache recovery are
+owned by the [native connection manager](docs/reconnect.md). Device cards show
+firmware identity separately from the selected profile and local nickname.
+The device charts share a 3H/1D/3D/1W range selector, and the Kongle release list
+initially shows three entries with Show more for older candidates.

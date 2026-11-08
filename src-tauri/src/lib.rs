@@ -18,11 +18,17 @@ pub fn run() {
         .plugin(tauri_plugin_notification_forwarder::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
+            ble::connection::start(app.handle().clone()).map_err(std::io::Error::other)?;
             ble::notification_forwarding::spawn_background_forwarder(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            ble::connection::ble_enable_adapter,
+            ble::connection::ble_connection_snapshot,
+            ble::connection::ble_connection_connect,
+            ble::connection::ble_connection_disconnect,
+            ble::connection::ble_connection_configure,
             ble::commands::ble_list_profiles,
             ble::commands::ble_repair_service_cache,
             ble::commands::ble_get_active_profile,
@@ -31,7 +37,6 @@ pub fn run() {
             ble::commands::ble_list_features_for_active_profile,
             ble::commands::ble_set_notification_forwarding_enabled,
             ble::commands::ble_set_active_device_notifications_enabled,
-            ble::commands::ble_set_connection_state,
             ble::commands::ble_absorb_notification_backlog_watermark,
             ble::commands::ble_set_blocked_notification_packages,
             ble::commands::ble_poc_send_current_time,

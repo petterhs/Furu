@@ -1,9 +1,8 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   type BleDevice,
   checkPermissions,
-  connect,
-  disconnect,
   getAdapterState,
   getScanningUpdates,
   read,
@@ -17,7 +16,6 @@ import type { ProfileInfo } from "$lib/bleContract";
 import { FeatureId, ProfileId } from "$lib/bleContract";
 import { appSettings } from "$lib/stores/appSettings";
 import { notificationFilters } from "$lib/stores/notificationFilters";
-import { ReconnectCycle } from "$lib/reconnect";
 import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
 import { defaultNameRules } from "$lib/persistence/deviceProfilesStore";
 import {
@@ -32,6 +30,7 @@ import {
   clampCtsSyncIntervalMinutes,
   getRememberedByAddress,
   rememberedDevices,
+  devicesHydrated,
   recordDetectedProfile,
   touchRememberedDevice,
 } from "$lib/stores/devices";
@@ -41,7 +40,7 @@ import {
   getFeatureIdsForProfileId,
   hydrateDeviceProfiles,
 } from "$lib/stores/deviceProfiles";
-import { appendConnectionEvent } from "$lib/stores/connectionHistory";
+import { mergeNativeConnectionHistory } from "$lib/stores/connectionHistory";
 import {
   HEART_RATE_MEASUREMENT_CHAR_UUID,
   HEART_RATE_SERVICE_UUID,
@@ -52,15 +51,7 @@ import { bleAddressesEqual } from "$lib/utils/deviceId";
 import { beginBleMutation, endBleMutation, isDfuSessionActive, dfuInProgress,
   beginCapabilityUpdate, endCapabilityUpdate, bleOperationsReleased } from "$lib/stores/dfuSession";
 
-export type ConnectOptions = {
-  /** When true, this connection attempt is from the auto-reconnect loop (not the user tapping Connect). */
-  isAutoReconnect?: boolean;
-  /**
-   * If true, skip scanning and connect by address only (low battery cost; may fail if the OS has no cached
-   * peripheral). Auto-reconnect uses this path.
-   */
-  skipScan?: boolean;
-};
+export type ConnectOptions = { /** Debug action: request direct MAC connection. */ skipScan?: boolean };
 
 export const scanResults = writable<BleDevice[]>([]);
 export const connected = writable(false);
@@ -119,74 +110,88 @@ const HR_STALE_AFTER_MS = 120_000;
 let disFetchCompletedForAddress: string | null = null;
 let deviceInformationReadInFlight = false;
 
-let userRequestedDisconnect = false;
-/** Cleared when the native connection channel reports `connected`, or when a connect attempt fails. */
-let pendingConnectSource: "user" | "auto" | null = null;
-const reconnectCycle = new ReconnectCycle({
-  settings: (address) => {
-    const device = getRememberedByAddress(address);
-    return device ? {
-      enabled: device.autoReconnect,
+export type NativeConnectionSnapshot = {
+  revision: number; sessionId: number; connected: boolean; status: string; address: string | null; name: string;
+  profileId: string; featureIds: string[]; attempt: number; detail: string;
+  events: { id: number; address: string; at: string; connected: boolean; detail: string }[];
+};
+export const nativeConnection = writable<NativeConnectionSnapshot | null>(null);
+let latestNativeRevision = 0;
+let nativeSessionToken = 0;
+let nativeHistoryQueue: Promise<void> = Promise.resolve();
+let nativePolicyQueue: Promise<void> = Promise.resolve();
+let lastNativePolicies = "";
+
+function syncNativeConnectionPolicies(): Promise<void> {
+  if (!get(devicesHydrated)) return nativePolicyQueue;
+  const catalog = get(deviceProfileCatalog);
+  const policies = {
+    notificationForwardingEnabled: get(appSettings).notificationForwardingEnabled,
+    blockedNotificationPackages: get(notificationFilters).blockedPackages,
+    devices: get(rememberedDevices).map((device) => ({
+      address: device.address, name: device.name, nickname: device.nickname ?? "",
+      profilePreference: device.profilePreference, enabled: device.autoReconnect,
       retryDelayMs: clampAutoReconnectIntervalMinutes(device.autoReconnectIntervalMinutes) * 60_000,
       maxFailures: clampAutoReconnectMaxAttempts(device.autoReconnectMaxAttempts),
-    } : undefined;
-  },
-  state: (address) => {
-    const selected = get(selectedAddress);
-    if (!selected || !bleAddressesEqual(selected, address)) return "stop";
-    if (get(connected)) return "connected";
-    if (get(connectingAddress) || isDfuSessionActive()) return "busy";
-    return "ready";
-  },
-  connect: async (address, direct) => {
-    await connectTo(address, { isAutoReconnect: true, skipScan: direct });
-    return get(connected) && bleAddressesEqual(get(selectedAddress) ?? "", address);
-  },
-  stopped: () => { void syncAndroidBleKeepalive(get(connected)); },
-  log: pushLog,
-});
-
-function cancelAutoReconnectCycle(): void { reconnectCycle.cancel(); }
-function scheduleAutoReconnect(address: string): boolean { return reconnectCycle.start(address.trim()); }
-
-function recordConnectionHistoryConnected(detail: string): void {
-  queueMicrotask(() => {
-    const addr = get(selectedAddress);
-    if (!addr) return;
-    const dev = getRememberedByAddress(addr);
-    if (!dev) return;
-    void appendConnectionEvent(dev.id, true, detail);
+      replayNotifications: device.replayMissedNotificationsOnReconnect ?? true,
+      notificationsEnabled: device.notificationsEnabled,
+    })),
+    profiles: catalog.profiles.map((p) => ({ id: p.id, featureIds: p.featureIds })),
+    nameRules: catalog.nameRules,
+  };
+  const key = JSON.stringify(policies);
+  nativePolicyQueue = nativePolicyQueue.catch(() => {}).then(async () => {
+    if (key === lastNativePolicies) return;
+    await invoke("ble_connection_configure", { policies });
+    lastNativePolicies = key;
   });
+  return nativePolicyQueue;
 }
 
-function recordConnectionHistoryDisconnected(detail: string, addressAtEvent: string | null): void {
-  if (!addressAtEvent?.trim()) return;
-  const dev = getRememberedByAddress(addressAtEvent);
-  if (!dev) return;
-  void appendConnectionEvent(dev.id, false, detail);
-}
-
-async function maybeAbsorbNotificationBacklog(
-  connectAddress: string,
-  isAutoReconnect: boolean,
-): Promise<void> {
-  const remembered = getRememberedByAddress(connectAddress);
-  const replayMissed = remembered?.replayMissedNotificationsOnReconnect ?? true;
-  const shouldAbsorb = !isAutoReconnect || !replayMissed;
-  if (!shouldAbsorb) return;
-  try {
-    await invoke("ble_absorb_notification_backlog_watermark");
-    pushLog("notifications: absorbed phone backlog (watch will not receive old notifications)");
-  } catch (error) {
-    pushLog(`notifications: backlog absorb failed: ${String(error)}`);
+function consumeNativeConnection(state: NativeConnectionSnapshot): void {
+  if (state.revision <= latestNativeRevision) return;
+  latestNativeRevision = state.revision;
+  const wasConnected = get(connected);
+  const previousAddress = get(selectedAddress);
+  const previous = get(nativeConnection);
+  const newSession = state.connected && previous?.sessionId !== state.sessionId;
+  if (!state.connected || previousAddress !== state.address || newSession) nativeSessionToken++;
+  if (newSession && wasConnected) {
+    // A suspended WebView may have missed the intermediate disconnect snapshot.
+    connected.set(false);
+    for (const listener of connectionListeners) listener(false);
   }
+  nativeConnection.set(state);
+  selectedAddress.set(state.address);
+  const pending = ["connecting", "reconnecting", "waiting_bluetooth", "disconnecting"].includes(state.status);
+  connectingAddress.set(pending ? state.address : null);
+  activeProfileId.set(state.profileId || ProfileId.unknown);
+  if (JSON.stringify(get(activeFeatureIds)) !== JSON.stringify(state.featureIds)) activeFeatureIds.set(state.featureIds);
+  connected.set(state.connected);
+  if (state.status === "error" && state.address) connectError.set({ address: state.address, message: state.detail });
+  else if (state.connected) connectError.set(null);
+  if (state.connected && (newSession || !wasConnected || previousAddress !== state.address)) {
+    const token = nativeSessionToken;
+    void finalizeConnectSession(state.address!, state.name, token).catch((error) => pushLog(`session configuration: ${String(error)}`));
+  }
+  if (wasConnected !== state.connected || newSession) for (const listener of connectionListeners) listener(state.connected);
+  if (previous?.status !== state.status || previous.detail !== state.detail) pushLog(`BLE: ${state.status}: ${state.detail}`);
+  // Native history keeps the real timestamps while the WebView is suspended.
+  nativeHistoryQueue = nativeHistoryQueue.catch(() => {}).then(async () => {
+    await mergeNativeConnectionHistory(state.events.flatMap((event) => {
+      const device = getRememberedByAddress(event.address);
+      return device ? [{ deviceId: device.id, at: event.at, connected: event.connected, detail: event.detail, nativeId: event.id }] : [];
+    }));
+  }).catch((error) => pushLog(`BLE: connection history save failed: ${String(error)}`));
 }
 
 async function finalizeConnectSession(
   connectAddress: string,
   advertisementName: string | undefined,
-  isAutoReconnect: boolean,
+  token: number,
 ): Promise<void> {
+  const current = () => token === nativeSessionToken && get(connected) && bleAddressesEqual(get(selectedAddress) ?? "", connectAddress);
+  if (!current()) return;
   selectedAddress.set(connectAddress);
   connectError.set(null);
   const remembered = getRememberedByAddress(connectAddress);
@@ -203,9 +208,10 @@ async function finalizeConnectSession(
       name: advertisementName || "Unknown device",
     } as BleDevice);
   }
+  if (!current()) return;
   await applySessionProfileAfterConnect(connectAddress, advertisementName);
+  if (!current()) return;
   await syncNativeNotificationForwardingGates();
-  await maybeAbsorbNotificationBacklog(connectAddress, isAutoReconnect);
   pushLog(`connect: session ready for ${connectAddress}`);
 }
 
@@ -216,85 +222,13 @@ async function applySessionProfileAfterConnect(
   // Firmware observations must not change merely because a user edits auto rules.
   const detected = resolveProfileIdFromDeviceName(advertisementName, defaultNameRules());
   await recordDetectedProfile(connectAddress, detected);
-  // This scope owns the connection mutation lock. Allow capability writes to
-  // finish under that lock, including edits queued during finalization.
-  connectionProfileFinalization = true;
-  try {
-    let pending = reconcileSessionProfile();
-    for (;;) {
-      await pending;
-      if (pending === profileConfigurationQueue) break;
-      pending = profileConfigurationQueue;
-    }
-  } finally {
-    connectionProfileFinalization = false;
-  }
+  if (!get(connected) || !bleAddressesEqual(get(selectedAddress) ?? "", connectAddress)) return;
+  await reconcileSessionProfile();
 }
 
-let connectionProfileFinalization = false;
-let profileConfigurationKey = "";
-let profileConfigurationRevision = 0;
-let profileConfigurationQueue: Promise<void> = Promise.resolve();
-
-/** Serialize native changes, skip superseded edits, and update live feature consumers. */
+/** Normal capability selection is owned by Rust alongside connection readiness. */
 function reconcileSessionProfile(): Promise<void> {
-  const connectAddress = get(selectedAddress);
-  if (!get(connected) || !connectAddress) {
-    if (profileConfigurationKey) {
-      profileConfigurationKey = "";
-      profileConfigurationRevision++;
-    }
-    return profileConfigurationQueue;
-  }
-  if (isDfuSessionActive()) return profileConfigurationQueue;
-  const remembered = getRememberedByAddress(connectAddress);
-  if (!remembered) return profileConfigurationQueue;
-  let profileId: string = ProfileId.unknown;
-  if (remembered?.profilePreference && remembered.profilePreference !== "auto") {
-    profileId = remembered.profilePreference;
-  } else if (remembered?.profilePreference === "auto") {
-    profileId = resolveProfileIdFromDeviceName(remembered.name, get(deviceProfileCatalog).nameRules);
-  }
-  const featureIds = getFeatureIdsForProfileId(profileId);
-  const key = JSON.stringify([connectAddress.toLowerCase(), profileId, [...featureIds].sort()]);
-  if (key === profileConfigurationKey) return profileConfigurationQueue;
-  profileConfigurationKey = key;
-  const revision = ++profileConfigurationRevision;
-  const current = () => revision === profileConfigurationRevision && get(connected) &&
-    bleAddressesEqual(get(selectedAddress) ?? "", connectAddress);
-  profileConfigurationQueue = profileConfigurationQueue.then(async () => {
-    if (!current()) return;
-    if (!beginCapabilityUpdate(connectionProfileFinalization)) {
-      profileConfigurationKey = "";
-      return;
-    }
-    try {
-      await invoke("ble_set_active_capabilities", { profileId, featureIds });
-      if (!current()) return;
-      activeProfileId.set(profileId);
-      activeFeatureIds.set([...featureIds]);
-      pushLog(`session profile: ${profileId} (${featureIds.length} features)`);
-    } catch (error) {
-      pushLog(`ble_set_active_capabilities failed (${profileId}): ${String(error)}`);
-      if (current()) {
-        // Do not retry a failed write on its own release notification.
-        // A changed preference, feature list or connection will retry it.
-        try {
-          await invoke("ble_set_active_capabilities", { profileId: ProfileId.unknown, featureIds: [] });
-          if (current()) {
-            activeProfileId.set(ProfileId.unknown);
-            activeFeatureIds.set([]);
-          }
-        } catch (fallbackError) {
-          pushLog(`profile fallback failed: ${String(fallbackError)}`);
-        }
-      }
-    } finally {
-      // Retain exclusion through both the native write and feature publication.
-      endCapabilityUpdate();
-    }
-  });
-  return profileConfigurationQueue;
+  return syncNativeConnectionPolicies().catch((error) => pushLog(`BLE: profile configuration failed: ${String(error)}`));
 }
 
 function wireSessionProfileReconciliation(): void {
@@ -664,55 +598,54 @@ function wireHeartRateSubscriptionReconciliation(): void {
   run();
 }
 
-async function refreshDeviceInformation(): Promise<void> {
-  if (deviceInformationReadInFlight) return;
-  if (!get(connected) || !get(selectedAddress)) return;
-  if (!get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) return;
+async function refreshDeviceInformation(): Promise<boolean> {
+  if (deviceInformationReadInFlight || !get(connected) || !get(selectedAddress)) return false;
+  if (!get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) return false;
+  const token = nativeSessionToken;
+  const address = get(selectedAddress);
+  const current = () => token === nativeSessionToken && get(connected) && get(selectedAddress) === address;
   deviceInformationReadInFlight = true;
   deviceInformationLoading.set(true);
   deviceInformationError.set(null);
   deviceInformation.set(null);
   try {
     const data = await invoke<DeviceInformation>("ble_read_device_information");
+    if (!current()) return false;
     deviceInformation.set(data);
     pushLog("DIS: device information read");
+    return true;
   } catch (error) {
-    deviceInformationError.set(String(error));
-    deviceInformation.set(null);
-    pushLog(`DIS read error: ${String(error)}`);
+    if (current()) {
+      deviceInformationError.set(String(error));
+      deviceInformation.set(null);
+      pushLog(`DIS read error: ${String(error)}`);
+    }
+    return false;
   } finally {
     deviceInformationReadInFlight = false;
     deviceInformationLoading.set(false);
+    if (token !== nativeSessionToken && get(connected)) queueMicrotask(reconcileDeviceInformation);
   }
 }
 
 function reconcileDeviceInformation(): void {
   void (async () => {
-    if (!get(connected) || !get(selectedAddress)) {
-      disFetchCompletedForAddress = null;
-      clearDeviceInformationState();
-      return;
-    }
-    if (!get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) {
+    if (!get(connected) || !get(selectedAddress) || !get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) {
       disFetchCompletedForAddress = null;
       clearDeviceInformationState();
       return;
     }
     const addr = get(selectedAddress)!;
+    const token = nativeSessionToken;
     if (disFetchCompletedForAddress === addr) return;
-    await refreshDeviceInformation();
-    disFetchCompletedForAddress = addr;
+    if (await refreshDeviceInformation() && token === nativeSessionToken) disFetchCompletedForAddress = addr;
   })();
 }
 
-/** Clears the one-shot fetch guard so the next reconcile (or caller) reads DIS again. */
 export async function refreshDeviceInformationNow(): Promise<void> {
   disFetchCompletedForAddress = null;
-  await refreshDeviceInformation();
-  const addr = get(selectedAddress);
-  if (addr && get(connected) && get(activeFeatureIds).includes(FeatureId.bleDeviceInformation)) {
-    disFetchCompletedForAddress = addr;
-  }
+  const token = nativeSessionToken;
+  if (await refreshDeviceInformation() && token === nativeSessionToken) disFetchCompletedForAddress = get(selectedAddress);
 }
 
 function wireDeviceInformationReconciliation(): void {
@@ -726,19 +659,7 @@ function wireDeviceInformationReconciliation(): void {
 }
 
 async function syncNativeNotificationForwardingGates(): Promise<void> {
-  const isConnected = get(connected);
-  const globalEnabled = get(appSettings).notificationForwardingEnabled;
-  const addr = get(selectedAddress);
-  const deviceEnabled = addr ? (getRememberedByAddress(addr)?.notificationsEnabled ?? false) : false;
-  const blockedPackages = get(notificationFilters).blockedPackages;
-  try {
-    await invoke("ble_set_connection_state", { connected: isConnected });
-    await invoke("ble_set_notification_forwarding_enabled", { enabled: globalEnabled });
-    await invoke("ble_set_active_device_notifications_enabled", { enabled: deviceEnabled });
-    await invoke("ble_set_blocked_notification_packages", { packages: blockedPackages });
-  } catch (error) {
-    pushLog(`notification gate sync error: ${String(error)}`);
-  }
+  await syncNativeConnectionPolicies();
 }
 
 function wireNotificationForwardingGateSync(): void {
@@ -761,57 +682,6 @@ function pushLog(message: string): void {
 
 export function logBleDiagnostic(message: string): void {
   pushLog(message);
-}
-
-function reportLinkClosed(source: string, callbackAddress?: string): void {
-  // The plugin sends both a disconnect callback and a connection-state update.
-  // Only the first transition should alert, update history and schedule reconnect.
-  if (!get(connected)) {
-    if (get(selectedAddress)) pushLog(`BLE: duplicate disconnect signal (${source})`);
-    return;
-  }
-  const address = get(selectedAddress) ?? get(connectingAddress);
-  if (callbackAddress && address && !bleAddressesEqual(callbackAddress, address)) {
-    pushLog(`BLE: ignoring late disconnect callback for ${callbackAddress}; active=${address}`);
-    return;
-  }
-  const requested = userRequestedDisconnect;
-  const updating = isDfuSessionActive();
-  userRequestedDisconnect = false;
-  connected.set(false);
-  const detail = requested ? "disconnected (app requested)" : updating
-    ? "disconnected (firmware update)" : "disconnected (unexpected link loss)";
-  pushLog(`BLE: ${detail}; source=${source}; address=${address ?? "unknown"}`);
-  recordConnectionHistoryDisconnected(detail, address);
-  void syncNativeNotificationForwardingGates();
-  if (!requested && !updating && address) {
-    const name = getRememberedByAddress(address)?.name ?? "PineTime";
-    void invoke("plugin:ble-keepalive|notify_disconnect", { name }).catch((error) =>
-      pushLog(`BLE: disconnect notification failed: ${String(error)}`));
-    cancelAutoReconnectCycle();
-    void syncAndroidBleKeepalive(scheduleAutoReconnect(address), true);
-  } else {
-    cancelAutoReconnectCycle();
-    void syncAndroidBleKeepalive(false);
-  }
-  for (const listener of connectionListeners) listener(false);
-}
-
-let keepaliveQueue: Promise<void> = Promise.resolve();
-
-function syncAndroidBleKeepalive(keepRunning: boolean, reconnecting = false): Promise<void> {
-  keepaliveQueue = keepaliveQueue.then(async () => {
-    try {
-      if (keepRunning) {
-        await invoke("plugin:ble-keepalive|start_service", { reconnecting });
-      } else {
-        await invoke("plugin:ble-keepalive|stop_service");
-      }
-    } catch (error) {
-      pushLog(`BLE keepalive (${keepRunning ? "start" : "stop"}): ${String(error)}`);
-    }
-  });
-  return keepaliveQueue;
 }
 
 export async function refreshProfileState(): Promise<void> {
@@ -839,33 +709,19 @@ export async function initializeBleSession(): Promise<void> {
     pushLog(`refresh profile state error: ${String(error)}`);
   }
 
-  const connectionChannel = new Channel<boolean>();
-  connectionChannel.onmessage = (state) => {
-    if (!state) {
-      reportLinkClosed("native connection-state channel");
-      return;
-    }
-    if (get(connected)) return;
-    connected.set(true);
-    void syncNativeNotificationForwardingGates();
-    if (state) {
-      const src = pendingConnectSource;
-      pendingConnectSource = null;
-      const detail =
-        src === "auto"
-          ? "connected (auto-reconnect)"
-          : src === "user"
-            ? "connected (user)"
-            : "connected (native)";
-      pushLog(`BLE: ${detail}`);
-      recordConnectionHistoryConnected(detail);
-    }
-    void syncAndroidBleKeepalive(true);
-    for (const listener of connectionListeners) {
-      listener(state);
-    }
-  };
-  await invoke("plugin:blec|connection_state", { update: connectionChannel });
+  await listen<NativeConnectionSnapshot>("ble-native-connection", (event) => consumeNativeConnection(event.payload));
+  await listen<string>("ble-native-log", (event) => pushLog(`BLE: ${event.payload}`));
+  consumeNativeConnection(await invoke<NativeConnectionSnapshot>("ble_connection_snapshot"));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void invoke<NativeConnectionSnapshot>("ble_connection_snapshot")
+      .then(consumeNativeConnection).catch((error) => pushLog(`BLE: snapshot refresh failed: ${String(error)}`));
+  });
+  const configure = () => { void syncNativeConnectionPolicies().catch((e) => pushLog(`BLE: native configuration failed: ${String(e)}`)); };
+  rememberedDevices.subscribe(configure);
+  deviceProfileCatalog.subscribe(configure);
+  devicesHydrated.subscribe(configure);
+  appSettings.subscribe(configure);
+  notificationFilters.subscribe(configure);
 
   await getScanningUpdates((state) => {
     scanning.set(state);
@@ -930,6 +786,8 @@ export async function requestBlePermissions(ask: boolean): Promise<boolean> {
 export async function beginScan(): Promise<void> {
   scanResults.set([]);
   try {
+    if (get(connectingAddress)) { pushLog("scan: wait for the native connection attempt"); return; }
+    await invoke("ble_enable_adapter");
     await startScan((found) => scanResults.set(found), 15_000, false);
   } catch (error) {
     pushLog(`startScan error: ${String(error)}`);
@@ -944,259 +802,51 @@ export async function endScan(): Promise<void> {
   }
 }
 
-const CONNECT_SCAN_TIMEOUT_MS = 15_000;
-// Android bounds connect and MTU IPC separately (15 s each, plus targeted
-// retirement), up to three attempts, then service discovery. Keep the UI guard
-// outside that budget so it cannot abandon a still-owned native attempt.
-const CONNECT_ATTEMPT_TIMEOUT_MS = 150_000;
-const DFU_DISCONNECT_TIMEOUT_MS = 8_000;
-// Android can finish a write-without-response before the watch processes the
-// activation command. Give the watch a chance to reboot before closing GATT.
-const DFU_ACTIVATION_GRACE_MS = 2_000;
-
-async function connectWithTimeout(address: string, timeoutMs: number): Promise<void> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    await Promise.race([
-      connect(address, () => reportLinkClosed("native peripheral callback", address), false),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error(`connect timeout after ${Math.round(timeoutMs / 1000)}s`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
-  }
-}
-
-/**
- * Run a scan until `address` appears (or timeout). Some platforms only allow
- * `connect` to peripherals seen during an active / recent scan.
- *
- * Does not stop the scan when a match appears — stopping before `connect` can
- * drop the peripheral from the cache on some stacks; `connectTo` stops scan
- * after attempting connection.
- */
-function scanUntilAddressFound(address: string, timeoutMs: number): Promise<BleDevice | null> {
-  const requested = address.trim();
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const settle = (device: BleDevice | null) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      resolve(device);
-    };
-
-    timeoutId = setTimeout(() => {
-      const match = get(scanResults).find((d) => bleAddressesEqual(d.address, requested));
-      settle(match ?? null);
-    }, timeoutMs);
-
-    startScan(
-      (devices) => {
-        scanResults.set(devices);
-        const match = devices.find((d) => bleAddressesEqual(d.address, requested));
-        if (!match || settled) return;
-        settle(match);
-      },
-      timeoutMs,
-      false,
-    )
-      .catch((error) => {
-        if (settled) return;
-        settled = true;
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        reject(error);
-      });
-  });
-}
-
+/** Request a native connection. The event stream owns readiness and retries. */
 export async function connectTo(address: string, options?: ConnectOptions): Promise<void> {
-  let stopScanAfterConnect = false;
   const requested = address.trim();
-  if (!requested) return;
-  if (get(connectingAddress)) {
-    pushLog(`connect: already connecting to ${get(connectingAddress)}`);
-    return;
-  }
-  if (!beginBleMutation()) {
-    pushLog("connect: blocked while another BLE or DFU operation is in progress");
-    return;
-  }
-  const isAutoReconnect = options?.isAutoReconnect ?? false;
-  const skipScan = options?.skipScan ?? false;
-  if (!isAutoReconnect) {
-    cancelAutoReconnectCycle();
-    pendingConnectSource = "user";
-  } else {
-    pendingConnectSource = "auto";
-  }
+  if (!requested || !beginBleMutation()) return;
   connectingAddress.set(requested);
   connectError.set(null);
+  let accepted = false;
   try {
-    const ok = await checkPermissions(!isAutoReconnect);
+    const ok = await checkPermissions(true);
     permissionsOk.set(ok);
-    if (!ok) {
-      connectError.set({ address: requested, message: "BLE permissions not granted." });
-      pushLog("connect: BLE permissions not granted");
-      return;
-    }
-    try {
-      await stopScan();
-    } catch {
-      /* ignore: no scan in progress */
-    }
-
-    if (skipScan) {
-      pushLog(`connect: direct (no scan) to ${requested}…`);
-      const remembered = getRememberedByAddress(requested);
-      const advName = remembered?.name;
-      await connectWithTimeout(requested, CONNECT_ATTEMPT_TIMEOUT_MS);
-      await finalizeConnectSession(requested, advName, isAutoReconnect);
-    } else {
-      scanResults.set([]);
-      pushLog(`connect: scanning for ${requested}…`);
-      const fromScan = await scanUntilAddressFound(requested, CONNECT_SCAN_TIMEOUT_MS);
-      if (!fromScan) {
-        connectError.set({ address: requested, message: "Could not find the device while scanning." });
-        pushLog(`connect: device not found while scanning: ${requested}`);
-        return;
-      }
-      stopScanAfterConnect = true;
-
-      const connectAddress = fromScan.address;
-      try {
-        await connectWithTimeout(connectAddress, CONNECT_ATTEMPT_TIMEOUT_MS);
-        await finalizeConnectSession(connectAddress, fromScan.name, isAutoReconnect);
-      } finally {
-        if (stopScanAfterConnect) {
-          try {
-            await stopScan();
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    }
+    if (!ok) throw new Error("BLE permissions not granted.");
+    // Wait for the actual Android dialog result before starting scan/connect.
+    await invoke("ble_enable_adapter");
+    await syncNativeConnectionPolicies();
+    await invoke("ble_connection_connect", { address: requested, skipScan: options?.skipScan ?? false });
+    accepted = true;
   } catch (error) {
-    connectError.set({ address: requested, message: "Could not connect to the device. Please try again." });
-    pushLog(`connect error: ${String(error)}`);
+    const message = String(error);
+    connectError.set({ address: requested, message });
+    pushLog(`connect error: ${message}`);
   } finally {
-    connectingAddress.set(null);
-    if (!get(connected)) {
-      pendingConnectSource = null;
-    }
+    if (!accepted) connectingAddress.set(null);
     endBleMutation();
   }
 }
 
-/** Repair Android's cached service handles, preserving the remembered device. */
 export async function repairServiceCache(address: string): Promise<void> {
   if (!beginBleMutation()) throw new Error("Wait for the current Bluetooth operation to finish.");
-  if (get(selectedAddress) && !bleAddressesEqual(get(selectedAddress)!, address)) {
-    endBleMutation();
-    throw new Error("Disconnect the other device before repairing this connection.");
-  }
-  userRequestedDisconnect = true;
-  cancelAutoReconnectCycle();
   try {
-    await invoke("ble_repair_service_cache", { address });
-    connected.set(false);
-    selectedAddress.set(null);
-    pendingConnectSource = null;
-    await syncAndroidBleKeepalive(false);
-    pushLog(`BLE: retired stale services for ${address}; reconnecting with fresh discovery`);
-  } finally {
-    userRequestedDisconnect = false;
-    endBleMutation();
-  }
-  await connectTo(address);
+    await invoke("ble_enable_adapter");
+    await syncNativeConnectionPolicies();
+    await invoke("ble_connection_connect", { address, repair: true });
+  } finally { endBleMutation(); }
 }
 
 export async function disconnectDevice(): Promise<void> {
-  if (!beginBleMutation()) {
-    pushLog("disconnect: blocked while another BLE or DFU operation is in progress");
-    return;
-  }
-  userRequestedDisconnect = true;
-  cancelAutoReconnectCycle();
-  try {
-    await disconnect();
-    selectedAddress.set(null);
-    pushLog("BLE: disconnect finished (app requested)");
-  } catch (error) {
-    const message = String(error);
-    if (/no device connected/i.test(message)) {
-      // A PineTime can reboot before the BLE plugin processes its disconnect
-      // event. In that case the plugin reports that its peripheral is already
-      // disconnected, while the app's connection-state channel remains stale.
-      connected.set(false);
-      selectedAddress.set(null);
-      void syncAndroidBleKeepalive(false);
-      userRequestedDisconnect = false;
-      pendingConnectSource = null;
-      cancelAutoReconnectCycle();
-      pushLog("BLE: cleared stale connection state (device already disconnected)");
-    } else {
-      userRequestedDisconnect = false;
-      pushLog(`disconnect error: ${message}`);
-    }
-  } finally {
-    endBleMutation();
-  }
+  if (!beginBleMutation()) return;
+  try { await invoke("ble_connection_disconnect"); }
+  catch (error) { pushLog(`disconnect error: ${String(error)}`); }
+  finally { endBleMutation(); }
 }
 
-/** Reconcile the BLE link after DFU, allowing a successful activation to reach the watch. */
+/** Native DFU's guard owns the reboot grace period, cleanup and reconnect. */
 export async function disconnectAfterDfu(activationRequested = false): Promise<void> {
-  if (!beginBleMutation()) {
-    pushLog("DFU disconnect: another BLE operation is in progress; clearing rebooted device state");
-    connected.set(false);
-    selectedAddress.set(null);
-    cancelAutoReconnectCycle();
-    void syncAndroidBleKeepalive(false);
-    return;
-  }
-
-  userRequestedDisconnect = true;
-  cancelAutoReconnectCycle();
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    if (activationRequested) {
-      pushLog("DFU activation: waiting for the watch to reboot");
-      await new Promise<void>((resolve) => setTimeout(resolve, DFU_ACTIVATION_GRACE_MS));
-    }
-    if (get(connected)) {
-      await Promise.race([
-        disconnect(),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error("disconnect timed out")), DFU_DISCONNECT_TIMEOUT_MS);
-        }),
-      ]);
-      pushLog("DFU disconnect: BLE link closed");
-    } else {
-      pushLog("DFU disconnect: watch already disconnected");
-    }
-  } catch (error) {
-    pushLog(`DFU disconnect: ${String(error)}; clearing stale connection state`);
-  } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
-    // Activation requests a reboot. Keep Furu usable even when Android misses
-    // the peripheral-disconnected callback or the native plugin's wait hangs.
-    connected.set(false);
-    selectedAddress.set(null);
-    void syncAndroidBleKeepalive(false);
-    pendingConnectSource = null;
-    userRequestedDisconnect = false;
-    cancelAutoReconnectCycle();
-    endBleMutation();
-  }
+  pushLog(`DFU: native cleanup scheduled; activation=${activationRequested}`);
 }
 
 export async function sendCurrentTime(): Promise<void> {

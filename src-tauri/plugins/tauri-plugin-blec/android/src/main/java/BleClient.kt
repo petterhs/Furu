@@ -25,7 +25,6 @@ import android.provider.Settings
 import android.util.SparseArray
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
-import androidx.core.app.ActivityCompat.startActivityForResult
 import androidx.core.content.ContextCompat.getSystemService
 import app.tauri.annotation.InvokeArg
 import app.tauri.plugin.Channel
@@ -179,8 +178,8 @@ class BleClient(private val activity: Activity, private val plugin: BleClientPlu
                 ?: throw RuntimeException("No bluetooth adapter available")
             // check if bluetooth is on
             if (!bluetoothAdapter.isEnabled ) {
-                val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-                startActivityForResult(activity, enableBtIntent,0,null)
+                invoke.reject("Bluetooth is off")
+                return
             }
             scanner = bluetoothAdapter.bluetoothLeScanner
                 ?: throw RuntimeException("No bluetooth scanner available for adapter")

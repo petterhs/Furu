@@ -1,5 +1,6 @@
 export type ConnectionHistoryEvent = {
   at: string;
+  nativeId?: number;
   connected: boolean;
   /** Short note for logs / debugging (e.g. user vs link lost). */
   detail?: string;

@@ -74,13 +74,12 @@
 
   onMount(() => {
     void getVersion().then((version) => { appVersion = version; }).catch(() => {});
-    void initializeBleSession();
-    void hydrateAppSettings();
-    void hydrateNotificationFilters();
+    void (async () => {
+      await Promise.allSettled([hydrateAppSettings(), hydrateNotificationFilters(),
+        hydrateRememberedDevices(), hydrateBatteryHistory(), hydrateConnectionHistory()]);
+      await initializeBleSession();
+    })();
     void requestPromptablePermissions();
-    void hydrateRememberedDevices();
-    void hydrateBatteryHistory();
-    void hydrateConnectionHistory();
   });
 </script>
 

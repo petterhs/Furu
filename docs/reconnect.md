@@ -1,60 +1,94 @@
-# Android reconnect and disconnect cleanup
+# Native connection ownership
 
-Connecting to a known stable MAC does not require a BLE name. Android can create
-a remote device for the address directly. Firmware/profile detection is separate:
-it needs fresh device metadata, while a direct reconnect can use the saved name.
-When scanning, prefer the current advertisement name over Android's cached name.
+`src-tauri/src/ble/connection.rs` owns the selected connection intent, connect
+workers, retries, disconnect cleanup, firmware-update pause and foreground-service
+state. JavaScript submits commands and observes `ble-native-connection` snapshots;
+there is no second JavaScript reconnect timer.
 
-The first unexpected-disconnect retry starts after five seconds. Later failures
-alternate direct-MAC and scan-by-MAC attempts at the configured retry interval.
-Cancelling or starting another cycle invalidates an in-flight attempt so its late
-result cannot restart an old cycle. Busy work does not consume the failure limit.
-Background attempts check permissions without opening a permission dialog.
+## Normal operation
 
-The Android bridge keeps one Peripheral/GATT owner per known address across scan
-results and scan restarts. It no longer needs a scan cache entry to connect.
-Disconnect rejects outstanding read, write, descriptor, MTU and discovery calls
-before emitting its event. Native connect attempts expire after five seconds;
-GATT operations expire after ten seconds and retire the GATT client, so a missing
-callback cannot permanently retain the Rust session lock. Old-client callbacks
-are ignored. Android operation-start failures are rejected immediately.
-Rust IPC waits allow fifteen seconds, outside the native ten-second deadline.
-Connect and MTU each use this budget; Android has no shorter wrapper around
-the combined operation. The frontend's final guard is 150 seconds, outside
-three attempts plus discovery and cleanup; ordinary out-of-range connect
-failures still expire at the native five-second deadline. Rust timeouts retire
-their exact native session using a monotonic attempt ID. Late retirement cannot
-close a newer client or resurrect an abandoned queued connect. Service snapshots
-tolerate disconnection, and Android 26–32 reads/notifications use the same
-completion path as newer Android callbacks. Permission checks without prompting
-return before opening either a permission dialog or Settings.
+A manual Connect first checks permissions and waits for Android's Bluetooth enable
+dialog to finish. The system dialog has no connection timeout. Only after a
+positive result does Furu ask the native owner to scan/connect. Background retries
+never open a permission dialog or ask to enable Bluetooth. They wait for Bluetooth
+to become available without consuming the failure budget; missing permissions
+stop retries until the user grants them and connects again.
 
-The Rust handler acquires state/device locks in a consistent order, clears old
-characteristic handles before discovery, and invokes disconnect callbacks after
-releasing session locks. Mobile event delivery does not block on a full bounded
-channel while cleanup is awaiting GATT completion.
+Unexpected link loss schedules a native retry after five seconds. Subsequent
+failures use the configured retry interval with exponential backoff capped at
+five minutes (or the configured interval when it is longer). Retries alternate
+direct MAC and scan-by-MAC; zero maximum failures means unlimited. A fresh GAP
+Device Name read after discovery allows firmware/profile detection even when the
+connection used only the saved MAC. Custom name rules and manual profile overrides
+are mirrored to Rust and are respected while the WebView is suspended.
 
-After a firmware change, Android service-cache repair and OTA invalidation are
-documented in [Android service cache](android-service-cache.md).
+Only one connect/cleanup worker runs at a time. Cancellation invalidates its
+generation and tells the BLE handler not to retry. An old result cannot publish a
+connection or restart retries; the owner finishes cleanup before starting another
+worker. GATT connect/operation deadlines, session-specific retirement, retained
+Android owners and stale-callback rejection remain in the local BLE plugin.
+Cancelling an in-flight native operation is cooperative and can take its remaining
+operation timeout; the UI does not claim an abandoned attempt is connected.
 
-This still uses JS timers and the Android foreground keepalive service. Timing
-while the WebView is suspended is not guaranteed. Reconnect after a process kill
-and changing to a different firmware MAC are not implemented here. A future
-native-owned reconnect loop must address those separately.
+## OTA and service cache
 
-Hardware checks still required:
+Native DFU reserves the link before subscribing/writing, suppressing other connects
+and notification forwarding. A drop guard ends the pause on success, error or
+cancellation. Successful activation gets a reboot grace period before cleanup;
+then auto-reconnect, when enabled, begins with a scan. Activation requested is not
+proof of installation and never confirms an MCUBoot trial.
 
-1. With auto-reconnect enabled, take a connected watch out of range, bring it
-   back, and verify a retry connects without forgetting/re-adding it. Allow the
-   configured interval after a failed first attempt.
-2. Repeat with the phone locked/app backgrounded and Bluetooth off/on. Capture
-   `scripts/capture-android-ble.sh` logs to check timer and GATT timeout behavior.
-3. Break the link during a read or notification subscription. Confirm the UI
-   shows disconnected and another connect works; `FuruBleGatt` logs the reason.
-4. Scan while connected and verify time/battery reads continue working.
-5. Cancel a reconnect cycle/manual disconnect and check it stays disconnected.
-6. Test an OTA reboot and check that Furu no longer hangs on pending native IPC.
-   Activation success must still be checked against the firmware after reconnect.
+The OTA cache invalidation and Repair connection from
+[Android service cache](android-service-cache.md) now run under this same owner.
+Native reconnect rebuilds characteristics and reapplies the selected capabilities.
+Frontend feature consumers resubscribe when the connection snapshot becomes ready.
 
-Use range loss/Bluetooth toggling for reconnect tests on trial firmware: resetting
-an unconfirmed trial may boot another firmware with a different MAC address.
+## Persistence and Android lifecycle
+
+`connection-manager.json` in app data stores policies, reconnect intent and up to
+512 timestamped connection transitions. Writes replace a temporary file. On process
+launch, Furu resumes intent only for a remembered device with auto-reconnect
+enabled. Manual Disconnect clears intent, Forget removes the target, and disabling
+auto-reconnect cancels scheduled background attempts. Retry limits reset on a new
+process launch or explicit Connect.
+
+The connected-device foreground service and disconnect notifications are driven
+from Rust. WebView suspension therefore does not stop the retry scheduler, capability
+gates or disconnect notifications. A native session ID forces metadata/subscription refresh even if the WebView
+missed the intermediate disconnect event. Native event replay fills the timeline with
+original timestamps when the UI resumes; event IDs prevent duplicate imports.
+Global/per-device notification settings and blocked packages are persisted alongside
+the native policies so reconnect cannot enable forwarding that the user disabled.
+
+This is not a promise of unattended resurrection after Android kills/force-stops
+the whole app. Saved intent resumes when the app process is launched normally.
+The existing service alone cannot initialize Tauri's activity-bound BLE plugin
+in a newly created process; it stops on a null restart intent. Automatic presence
+wake-up/process restoration would require a separate CompanionDeviceService or
+similar Android lifecycle design. Doze may also delay execution. No permanent
+wake lock is added.
+
+References: [Android background BLE](https://developer.android.com/develop/connectivity/bluetooth/ble/background),
+[Bluetooth enable dialog](https://developer.android.com/reference/android/bluetooth/BluetoothAdapter#ACTION_REQUEST_ENABLE).
+
+## Required hardware checks
+
+1. Start with Bluetooth off. Tap Connect, wait in the dialog, accept, and verify
+   connection continues without another tap. Repeat and cancel the dialog.
+2. With auto-reconnect enabled, take the watch out of range and back. Repeat with
+   the phone locked/app backgrounded and Bluetooth off/on. Check foreground and
+   disconnect notifications and the 3H timeline against native/logcat timestamps.
+3. Tap Disconnect/Cancel during a retry, and switch to another watch. A late result
+   must not revive the old connection. Test Forget and disabling auto-reconnect.
+4. OTA InfiniTime → Kongle at the same MAC. Verify automatic cache refresh,
+   reconnection, new firmware identity, profile suggestion and restored features
+   without Forget. Repeat error/cancel paths and a trial rollback. Do not equate
+   a successful transfer with installation or firmware confirmation.
+5. Restart Furu and verify saved intent resumes; explicitly disconnect, restart,
+   and verify it stays disconnected. Android force-stop requires reopening Furu.
+6. For an overnight run, record phone/OS, Furu/Kongle commits, native logcat and
+   available watch RTT. Firmware changes and radio-range changes affect the result.
+
+Host tests cover retry policy/backoff/generations, profile matching, persistence
+restoration, DFU guard cleanup and idempotent timestamped history import. Real radio,
+Android dialog and background lifecycle checks remain hardware work.

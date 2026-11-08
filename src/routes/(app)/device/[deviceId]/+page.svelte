@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firmwareLabel } from "$lib/firmwareLabel";
   import { goto } from "$app/navigation";
   import { onDestroy, onMount } from "svelte";
   import Battery from "@lucide/svelte/icons/battery";
@@ -83,8 +84,9 @@
   );
   const canShowLiveDeviceInfo = $derived(showDeviceInfoSection && isCurrentDevice);
 
-  type RangeKey = "1d" | "3d" | "7d";
+  type RangeKey = "3h" | "1d" | "3d" | "7d";
   const RANGE_MS: Record<RangeKey, number> = {
+    "3h": 3 * 60 * 60 * 1000,
     "1d": 24 * 60 * 60 * 1000,
     "3d": 3 * 24 * 60 * 60 * 1000,
     "7d": 7 * 24 * 60 * 60 * 1000,
@@ -233,7 +235,7 @@
   }
 
   const timelineGridStepHours = $derived(
-    selectedRange === "1d" ? 4 : selectedRange === "3d" ? 8 : null,
+    selectedRange === "3h" ? 1 : selectedRange === "1d" ? 4 : selectedRange === "3d" ? 8 : null,
   );
 
   const timelineTicks = $derived(
@@ -242,7 +244,7 @@
       : connectionTimelineHourGridTicks(
           rangeStartMs,
           rangeEndMs,
-          selectedRange === "3d" ? 8 : 4,
+          selectedRange === "3h" ? 1 : selectedRange === "3d" ? 8 : 4,
         ),
   );
 
@@ -265,9 +267,10 @@
   let firmwareReleases = $state<FirmwareRelease[]>([]);
   let firmwareCatalogLoading = $state(false);
   let firmwareCatalogError = $state<string | null>(null);
-  const visibleFirmwareReleases = $derived(
-    firmwareReleases.filter((release) => !release.prerelease || $appSettings.firmwareDevelopmentChannel).slice(0, 5),
-  );
+  let releaseLimit = $state(3);
+  const filteredFirmwareReleases = $derived(firmwareReleases.filter(
+    (release) => !release.prerelease || $appSettings.firmwareDevelopmentChannel));
+  const visibleFirmwareReleases = $derived(filteredFirmwareReleases.slice(0, releaseLimit));
 
   async function refreshFirmwareReleases(): Promise<void> {
     firmwareCatalogLoading = true;
@@ -370,7 +373,7 @@
     finishDfuConfirmation(false);
   });
 
-  async function onDfuStart(packageKind: "zip" | "bin", release: FirmwareRelease | null = null): Promise<void> {
+  async function onDfuStart(release: FirmwareRelease | null = null): Promise<void> {
     if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known ? deviceDisplayName(known) : "PineTime")) return;
     let unlisten: (() => void) | undefined;
     let keepResult = false;
@@ -401,13 +404,11 @@
         path = download;
       } else {
         const pickerStartedAt = performance.now();
-        logBleDiagnostic(`DFU: opening Android ${packageKind} picker`);
+        logBleDiagnostic("DFU: opening Android ZIP picker");
         const first = await withDfuCancellation(open({
           multiple: false,
-          title: packageKind === "zip" ? "Select DFU ZIP package" : "Select firmware (.bin)",
-          filters: [packageKind === "zip"
-            ? { name: "DFU ZIP", extensions: ["zip"] }
-            : { name: "Firmware (.bin)", extensions: ["bin"] }],
+          title: "Select DFU ZIP package",
+          filters: [{ name: "DFU ZIP", extensions: ["zip"] }],
         }), signal);
         logBleDiagnostic(`DFU: Android picker returned in ${Math.round(performance.now() - pickerStartedAt)} ms (${first === null ? "cancelled" : "selection"})`);
         if (first === DFU_ABORTED || first === null || signal.aborted) return;
@@ -415,30 +416,8 @@
         if (!path) return;
       }
 
-      let datPath: string | undefined;
-      if (packageKind === "bin" && !release) {
-        const datPick = await withDfuCancellation(open({
-          multiple: false,
-          title: "Select init packet (.dat)",
-          filters: [{ name: "Init packet", extensions: ["dat"] }],
-        }), signal);
-        if (datPick === DFU_ABORTED || datPick === null || signal.aborted) return;
-        datPath = Array.isArray(datPick) ? datPick[0] : datPick;
-        if (!datPath) return;
-      }
-
-      let input: { zipPath?: string; firmwareBinPath?: string; initDatPath?: string };
       if (!release) updateDfuProgress("staging", 0);
-      if (release) {
-        input = { zipPath: path };
-      } else if (packageKind === "bin" && datPath !== undefined) {
-        input = {
-          firmwareBinPath: await stagePickedFileForRust(path, "firmware.bin", sessionDir, signal, 0, 45),
-          initDatPath: await stagePickedFileForRust(datPath, "init.dat", sessionDir, signal, 45, 50),
-        };
-      } else {
-        input = { zipPath: await stagePickedFileForRust(path, "package.zip", sessionDir, signal, 0, 50) };
-      }
+      const input = { zipPath: release ? path : await stagePickedFileForRust(path, "package.zip", sessionDir, signal, 0, 50) };
       if (signal.aborted) return;
 
       unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
@@ -519,7 +498,12 @@
       <p class="m-0"><strong>{deviceDisplayName(known)}</strong></p>
       <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
       {#if isCurrentDevice && $deviceInformation?.firmwareRevision?.trim()}
-        <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Firmware v{$deviceInformation.firmwareRevision.trim()}</p>
+        <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">{firmwareLabel(known, $deviceInformation)}</p>
+      {/if}
+      {#if isCurrentDevice}
+        <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">Profile: {$deviceProfileCatalog.profiles.find((profile) => profile.id === $activeProfileId)?.label ?? $activeProfileId} ({known.profilePreference === "auto" ? "Auto" : "Manual"})</p>
+      {:else}
+        <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">{firmwareLabel(known, null)}</p>
       {/if}
       {#if isCurrentDevice && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
         <div class="mt-2 flex flex-col gap-1 text-sm">
@@ -668,6 +652,9 @@
               {isConnectingDevice ? "Connecting…" : "Connect"}
             </button>
           {/if}
+          {#if isConnectingDevice && !isCurrentDevice}
+            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy} onclick={() => void disconnectDevice()}>Cancel connection</button>
+          {/if}
           {#if android}
             <button class="btn btn-sm preset-tonal-surface" type="button"
               disabled={dfuBusy || isConnectingDevice || repairingServices}
@@ -710,19 +697,19 @@
                     <p class="m-0 text-sm font-semibold">Kongle {release.tagName} {release.prerelease ? "(development)" : ""}</p>
                     {#if release.publishedAt}<p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">{new Date(release.publishedAt).toLocaleDateString()}</p>{/if}
                   </div>
-                  <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("zip", release)}>Install…</button>
+                  <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart(release)}>Install…</button>
                 </div>
                 {#if release.notes}<details class="mt-2 text-sm"><summary class="cursor-pointer">Changelog</summary><pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{release.notes}</pre></details>{/if}
               </div>
             {/each}
+            {#if visibleFirmwareReleases.length < filteredFirmwareReleases.length}
+              <button class="btn btn-sm preset-tonal-surface" type="button" onclick={() => releaseLimit += 10}>Show more</button>
+            {/if}
           </div>
           <p class="m-0 mt-3 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Local package</p>
           <div class="mt-3 grid gap-2 sm:grid-cols-2">
-            <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("zip")}>
+            <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart()}>
               {dfuBusy ? "Update in progress…" : "Choose DFU ZIP…"}
-            </button>
-            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart("bin")}>
-              Choose BIN + init DAT…
             </button>
           </div>
         </div>
@@ -768,6 +755,8 @@
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <h2 class="m-0 text-base font-semibold">Battery Trend</h2>
       <div class="inline-flex items-center gap-1 rounded-md border border-[color:var(--color-surface-300-700)] p-1">
+        <button class={`btn btn-xs ${selectedRange === "3h" ? "preset-filled-primary-500" : "preset-tonal-surface"}`}
+          type="button" onclick={() => selectedRange = "3h"}>3H</button>
         <button
           class={`btn btn-xs ${selectedRange === "1d" ? "preset-filled-primary-500" : "preset-tonal-surface"}`}
           type="button"
