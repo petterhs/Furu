@@ -4,6 +4,11 @@ export type RememberedDevice = {
   id: string;
   address: string;
   name: string;
+  /** Local display name; never used for firmware detection. */
+  nickname?: string;
+  detectedProfileId?: string;
+  profileSuggestion?: import("$lib/profileObservation").ProfileSuggestion;
+  dismissedProfileSuggestions?: string[];
   lastSeenAt: string;
   profilePreference: ProfilePreference;
   notificationsEnabled: boolean;
