@@ -11,6 +11,7 @@ pub enum FeatureId {
     BleHeartRate,
     BleAlertNotification,
     BleStepCount,
+    BleMediaControl,
     InfiniTimeDfu,
     InfiniTimeCompanionUart,
 }
@@ -25,6 +26,7 @@ impl FeatureId {
             "kongle.battery_history" => Ok(Self::KongleBatteryHistory),
             "ble.hr" => Ok(Self::BleHeartRate),
             "ble.anss" => Ok(Self::BleAlertNotification),
+            "ble.media_control" => Ok(Self::BleMediaControl),
             "ble.dis_steps" => Ok(Self::BleStepCount),
             "infinitime.dfu" => Ok(Self::InfiniTimeDfu),
             "infinitime.companion_uart" => Ok(Self::InfiniTimeCompanionUart),
@@ -41,6 +43,7 @@ impl FeatureId {
             Self::KongleBatteryHistory => "kongle.battery_history",
             Self::BleHeartRate => "ble.hr",
             Self::BleAlertNotification => "ble.anss",
+            Self::BleMediaControl => "ble.media_control",
             Self::BleStepCount => "ble.dis_steps",
             Self::InfiniTimeDfu => "infinitime.dfu",
             Self::InfiniTimeCompanionUart => "infinitime.companion_uart",

@@ -122,6 +122,20 @@ impl ConnectionManager {
     pub async fn policies(&self, policies: Policies) -> Result<(), String> {
         self.request(|r| Command::Policies(policies, r)).await
     }
+    #[cfg(target_os = "android")]
+    pub(crate) fn media_connection(&self) -> Option<(u64, String)> {
+        let state = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.connected
+            || !state
+                .feature_ids
+                .iter()
+                .any(|feature| feature == "ble.media_control")
+        {
+            return None;
+        }
+        Some((state.session_id, state.address.clone()?))
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         self.snapshot
             .lock()

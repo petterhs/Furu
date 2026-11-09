@@ -9,6 +9,7 @@ export const FeatureId = {
   kongleBatteryHistory: "kongle.battery_history",
   bleHr: "ble.hr",
   bleAnss: "ble.anss",
+  bleMediaControl: "ble.media_control",
   bleDisSteps: "ble.dis_steps",
   infinitimeDfu: "infinitime.dfu",
   infinitimeCompanionUart: "infinitime.companion_uart",

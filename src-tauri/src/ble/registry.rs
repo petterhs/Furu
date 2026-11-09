@@ -56,3 +56,17 @@ pub const NORDIC_DFU_SERVICE_UUID: Uuid = uuid!("00001530-1212-efde-1523-785feab
 pub const NORDIC_DFU_CONTROL_POINT_CHAR_UUID: Uuid = uuid!("00001531-1212-efde-1523-785feabcd123");
 /// DFU Packet (`0x1532`).
 pub const NORDIC_DFU_PACKET_CHAR_UUID: Uuid = uuid!("00001532-1212-efde-1523-785feabcd123");
+
+/// InfiniTime-compatible music service and event notifications.
+#[cfg(target_os = "android")]
+pub const MEDIA_SERVICE_UUID: Uuid = uuid!("00000000-78fc-48fe-8e23-433b3a1942d0");
+#[cfg(target_os = "android")]
+pub const MEDIA_EVENT_UUID: Uuid = uuid!("00000001-78fc-48fe-8e23-433b3a1942d0");
+#[cfg(any(target_os = "android", test))]
+pub const MEDIA_STATUS_UUID: Uuid = uuid!("00000002-78fc-48fe-8e23-433b3a1942d0");
+#[cfg(any(target_os = "android", test))]
+pub const MEDIA_ARTIST_UUID: Uuid = uuid!("00000003-78fc-48fe-8e23-433b3a1942d0");
+#[cfg(any(target_os = "android", test))]
+pub const MEDIA_TITLE_UUID: Uuid = uuid!("00000004-78fc-48fe-8e23-433b3a1942d0");
+#[cfg(any(target_os = "android", test))]
+pub const MEDIA_ALBUM_UUID: Uuid = uuid!("00000005-78fc-48fe-8e23-433b3a1942d0");
