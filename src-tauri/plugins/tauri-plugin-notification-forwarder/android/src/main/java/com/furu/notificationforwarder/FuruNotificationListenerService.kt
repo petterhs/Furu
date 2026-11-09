@@ -1,5 +1,6 @@
 package com.furu.notificationforwarder
 
+import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -88,6 +89,14 @@ class FuruNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val notification = sbn.notification ?: return
+        // Playback notifications may stop being ongoing when paused. Filter
+        // their Android semantics, not player package names or notification text.
+        if (notification.category == Notification.CATEGORY_TRANSPORT ||
+            notification.extras?.containsKey(Notification.EXTRA_MEDIA_SESSION) == true
+        ) {
+            Log.d(TAG, "skip media notification pkg=${sbn.packageName}")
+            return
+        }
         val extras = notification.extras ?: return
         val title =
             extras.getCharSequence("android.title")?.toString()?.trim().orEmpty()

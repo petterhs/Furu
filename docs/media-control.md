@@ -20,6 +20,13 @@ Previous/next dispatch Android standard media keys. Spotify may change tracks;
 Absorb/other audiobook players decide whether to skip seconds, chapters or
 another item. Furu does not hardcode app-specific ten-second seeking.
 
+Playback notifications are excluded from ordinary notification forwarding when
+Android marks them as `CATEGORY_TRANSPORT` or attaches `EXTRA_MEDIA_SESSION`.
+This also covers paused playback, where a notification may no longer carry the
+ongoing flag. Filtering applies to each notification, not the entire player app:
+other alerts from the same app still follow normal forwarding preferences.
+Media metadata continues through the separate media-session bridge.
+
 Commands are bounded, expire after three seconds, and are tied to the watch
 connection generation/address and Android player session. Reconnect, a player
 switch or a DFU pause must not replay old actions. Android revalidates the
@@ -36,8 +43,10 @@ command; callbacks can replace that sampling in a later optimization.
   Check for unavailable state and no stale command delivery.
 - Older Android GATT caches may need Device → Repair connection after flashing
   new watch services through ST-Link; OTA cleanup handles its own cache refresh.
-- Kotlin/Android and ARM Rust builds are automated checks, not proof of actual
-  app playback behavior. Absorb playback behavior still needs the maintainer's hardware test.
+- The maintainer verified Spotify and Absorb title/playback controls on hardware.
+  Retest play/pause/track changes with notification forwarding enabled: these
+  must not create watch alerts or leave the Media page. Ordinary notifications
+  must still arrive. The playback-notification filter needs this hardware check.
 
 Sources: [Android MediaSessionManager](https://developer.android.com/reference/android/media/session/MediaSessionManager),
 [InfiniTime BLE protocol](https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/ble.md#music-control).
