@@ -44,9 +44,10 @@ command; callbacks can replace that sampling in a later optimization.
 - Older Android GATT caches may need Device → Repair connection after flashing
   new watch services through ST-Link; OTA cleanup handles its own cache refresh.
 - The maintainer verified Spotify and Absorb title/playback controls on hardware.
-  Retest play/pause/track changes with notification forwarding enabled: these
-  must not create watch alerts or leave the Media page. Ordinary notifications
-  must still arrive. The playback-notification filter needs this hardware check.
+  After the playback-notification filter, the maintainer confirmed that playback
+  no longer creates watch alerts or interrupts the Media page.
+- Media control is accepted for this iteration. Volume controls are deferred
+  until needed, rather than included in this release scope.
 
 Sources: [Android MediaSessionManager](https://developer.android.com/reference/android/media/session/MediaSessionManager),
 [InfiniTime BLE protocol](https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/ble.md#music-control).
