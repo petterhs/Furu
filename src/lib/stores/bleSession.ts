@@ -102,6 +102,7 @@ let lastStepGateLog: string | null = null;
 
 /** Monotonic token so overlapping async HR subscribe/unsubscribe runs do not race. */
 let hrReconcileToken = 0;
+let hrReconcileQueue: Promise<void> = Promise.resolve();
 let hrStaleTimerId: ReturnType<typeof setInterval> | null = null;
 /** Hide HR if no valid notification for this long (watch HR app off / sensor idle). */
 const HR_STALE_AFTER_MS = 120_000;
@@ -341,8 +342,10 @@ function startHrStaleTimer(): void {
   }, 30_000);
 }
 
-function applyHrPayload(data: number[]): void {
+function applyHrPayload(data: number[], source: "notification" | "read"): void {
   const bpm = parseHeartRateMeasurement(data);
+  const hex = data.map((value) => value.toString(16).padStart(2, "0")).join(" ");
+  pushLog(`HR: ${source} [${hex}] -> ${bpm === null ? "no valid reading" : `${bpm} BPM`}`);
   heartRateBpm.set(bpm);
   if (bpm !== null) {
     heartRateUpdatedAt.set(Date.now());
@@ -551,8 +554,7 @@ function wireStepPollingReconciliation(): void {
   run();
 }
 
-async function reconcileHeartRateSubscriptionAsync(): Promise<void> {
-  const token = ++hrReconcileToken;
+async function reconcileHeartRateSubscriptionAsync(token: number): Promise<void> {
   clearHrStaleTimer();
   try {
     await unsubscribe(HEART_RATE_MEASUREMENT_CHAR_UUID).catch(() => {
@@ -576,10 +578,10 @@ async function reconcileHeartRateSubscriptionAsync(): Promise<void> {
   try {
     await subscribe(HEART_RATE_MEASUREMENT_CHAR_UUID, (data) => {
       if (token !== hrReconcileToken) return;
-      applyHrPayload(data);
+      applyHrPayload(data, "notification");
     });
     if (token !== hrReconcileToken) {
-      void unsubscribe(HEART_RATE_MEASUREMENT_CHAR_UUID).catch(() => {});
+      await unsubscribe(HEART_RATE_MEASUREMENT_CHAR_UUID).catch(() => {});
       return;
     }
     heartRateError.set(null);
@@ -588,9 +590,10 @@ async function reconcileHeartRateSubscriptionAsync(): Promise<void> {
     try {
       const initial = await read(HEART_RATE_MEASUREMENT_CHAR_UUID, HEART_RATE_SERVICE_UUID);
       if (token !== hrReconcileToken) return;
-      applyHrPayload(initial);
-    } catch {
+      applyHrPayload(initial, "read");
+    } catch (error) {
       /* initial read is best-effort; streaming notifies are primary */
+      if (token === hrReconcileToken) pushLog(`HR: initial read failed: ${String(error)}`);
     }
   } catch (error) {
     if (token !== hrReconcileToken) return;
@@ -601,7 +604,13 @@ async function reconcileHeartRateSubscriptionAsync(): Promise<void> {
 }
 
 function reconcileHeartRateSubscription(): void {
-  void reconcileHeartRateSubscriptionAsync();
+  const token = ++hrReconcileToken;
+  // Keep teardown and setup serialized: an outdated subscribe completing late
+  // must never unsubscribe the newer session's listener for the same UUID.
+  hrReconcileQueue = hrReconcileQueue.catch(() => {}).then(async () => {
+    if (token !== hrReconcileToken) return;
+    await reconcileHeartRateSubscriptionAsync(token);
+  });
 }
 
 function wireHeartRateSubscriptionReconciliation(): void {
