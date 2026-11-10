@@ -53,7 +53,7 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
     {
       id: ProfileId.kongle,
       label: "Kongle",
-      description: "Kongle firmware; time, battery, history, notifications, media, and steps (0.4+).",
+      description: "Kongle firmware; time, battery, history, notifications, media, steps and pulse (0.4+).",
       isBuiltin: true,
       featureIds: sanitizeFeatureIds([
         FeatureId.bleDeviceInformation,
@@ -63,6 +63,7 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
         FeatureId.bleBattery,
         FeatureId.kongleBatteryHistory,
         FeatureId.bleDisSteps,
+        FeatureId.bleHr,
       ]),
     },
   ];

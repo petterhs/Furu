@@ -8,6 +8,7 @@ node --test tests/profileObservation.test.mjs
 node --test tests/firmwareLabel.test.mjs
 node --test tests/connectionEventMerge.test.mjs
 node --test tests/bleOperationGate.test.mjs
+node --test tests/hrMeasurement.test.mjs
 pnpm build
 rustfmt --check --edition 2021 src-tauri/src/ble/nordic_dfu.rs src-tauri/src/ble/dfu_package.rs
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
