@@ -509,6 +509,8 @@ async function refreshStepCount(): Promise<void> {
     pushLog(`step count read: ${steps}`);
   } catch (error) {
     if (!current()) return;
+    stepCount.set(null);
+    stepCountUpdatedAt.set(null);
     stepCountError.set(`Step count read failed: ${String(error)}`);
     pushLog(`step count read error: ${String(error)}`);
   } finally {

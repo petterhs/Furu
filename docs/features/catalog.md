@@ -59,7 +59,7 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 | Heart Rate | `ble.hr` | ✓ | — | — |
 | Media control | `ble.media_control` | ✓ | ✓ (Kongle 0.4+) | — |
 | Notifications | `ble.anss` | ✓ | ✓ | — |
-| Steps | `ble.dis_steps` | ✓ | — | — |
+| Steps | `ble.dis_steps` | ✓ | ✓ (0.4 sensor builds) | — |
 | DFU / OTA | `infinitime.dfu` | ✓ | — | — |
 | Companion UART | `infinitime.companion_uart` | ✓ | — | — |
 | Kongle (placeholder) | `kongle.*` | — | — | — |
