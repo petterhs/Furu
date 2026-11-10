@@ -34,6 +34,7 @@ In-app profile IDs (`unknown`, `infinitime`, `kongle`, …) choose which **catal
 | Kongle battery history | `kongle.battery_history` | ⚠️ | Kongle `6b6f0000-…` telemetry and paged history | Voltage, charging, reconnect backfill; persistent watch log requires experimental firmware feature |
 | Heart Rate | `ble.hr` | ✅ | SIG Heart Rate `0x180D` / Measurement `0x2A37` | JS notify + SIG parser; stale / invalid hidden |
 | Notifications | `ble.anss` | ✅ | SIG Alert Notification `0x1811` / New Alert `0x2A46` | Watch alerts + Android forward; `ble::ans` framing |
+| Media control | `ble.media_control` | ✅ | InfiniTime music service `00000000-…`, events `00000001-…` | Native Android media-session bridge; notification-listener access required |
 | Steps | `ble.dis_steps` | ✅ | [InfiniTime Motion Service](https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/MotionService.md) `00030000-…`, step `00030001-…` | `uint32` LE; `ble_read_step_count` |
 | DFU / OTA | `infinitime.dfu` | ⚠️ | Nordic legacy DFU (control `00001531-…`, packet `00001532-…`) | Application manifest ZIP in the UI (backend retains BIN/DAT compatibility); bounded reads and CRC checks; 20-byte writes; device validation before activation; post-reboot installation confirmation remains manual; see the [Android throughput follow-up](dfu-android-throughput.md) |
 | Companion UART | `infinitime.companion_uart` | ❌ | InfiniTime Nordic UART–style service | Planned |
@@ -56,6 +57,7 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 | Battery | `ble.battery` | ✓ | ✓ | — |
 | Kongle battery history | `kongle.battery_history` | — | ✓ | — |
 | Heart Rate | `ble.hr` | ✓ | — | — |
+| Media control | `ble.media_control` | ✓ | ✓ (Kongle 0.4+) | — |
 | Notifications | `ble.anss` | ✓ | ✓ | — |
 | Steps | `ble.dis_steps` | ✓ | — | — |
 | DFU / OTA | `infinitime.dfu` | ✓ | — | — |

@@ -8,6 +8,7 @@ mod cts;
 mod dis;
 mod feature_id;
 mod kongle_battery;
+pub mod media;
 mod nordic_dfu;
 pub mod notification_forwarding;
 mod profiles;

@@ -20,6 +20,7 @@ pub fn run() {
         .setup(|app| {
             ble::connection::start(app.handle().clone()).map_err(std::io::Error::other)?;
             ble::notification_forwarding::spawn_background_forwarder(app.handle().clone());
+            ble::media::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

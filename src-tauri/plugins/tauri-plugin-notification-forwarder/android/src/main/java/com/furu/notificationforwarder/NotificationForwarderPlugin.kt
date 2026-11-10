@@ -41,10 +41,33 @@ class WaitNotificationsArgs {
     var timeoutMs: Long = 15_000
 }
 
+@InvokeArg
+class MediaControlArgs {
+    var sessionId: String = ""
+    var event: Int = -1
+}
+
 @TauriPlugin
 class NotificationForwarderPlugin(private val activity: Activity) : Plugin(activity) {
     companion object {
         private const val TAG = "FuruNotifPlugin"
+    }
+
+    private val mediaBridge = AndroidMediaBridge(activity.applicationContext)
+
+    @Command
+    fun mediaSnapshot(invoke: Invoke) {
+        try { invoke.resolve(mediaBridge.snapshot()) }
+        catch (ex: Exception) { invoke.reject(ex.message ?: "Media snapshot failed") }
+    }
+
+    @Command
+    fun mediaControl(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(MediaControlArgs::class.java)
+            mediaBridge.control(args.sessionId, args.event)
+            invoke.resolve(JSObject().apply { put("ok", true) })
+        } catch (ex: Exception) { invoke.reject(ex.message ?: "Media control failed") }
     }
 
     private val testChannelId = "furu_notification_forwarder_test"
