@@ -1,11 +1,11 @@
-import { load } from "@tauri-apps/plugin-store";
-import type { RememberedDevice } from "$lib/types/device";
+import { openStore } from "#lib/persistence/valueStore";
+import type { RememberedDevice } from "#lib/types/device";
 
 const STORE_FILE = "devices.json";
 const DEVICES_KEY = "rememberedDevices";
 
 async function getStore() {
-  return load(STORE_FILE, { autoSave: false, defaults: {} });
+  return openStore(STORE_FILE);
 }
 
 export async function readRememberedDevices(): Promise<RememberedDevice[]> {

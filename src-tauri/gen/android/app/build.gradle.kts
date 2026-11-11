@@ -65,8 +65,14 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            manifestPlaceholders["usesCleartextTraffic"] = "true"
             applicationIdSuffix = ".dev"
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+            /*
+             * Dev builds install alongside a signed release build. Without the
+             * suffix the debug APK targets `com.furu_app`, which is signed by
+             * the release keystore, so `adb install` fails with
+             * INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+             */
             versionNameSuffix = "-dev"
             resValue("string", "app_name", "Furu Dev")
             resValue("string", "main_activity_title", "Furu Dev")

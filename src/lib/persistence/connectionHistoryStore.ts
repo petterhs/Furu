@@ -1,11 +1,11 @@
-import { load } from "@tauri-apps/plugin-store";
-import type { ConnectionHistoryByDevice } from "$lib/types/connectionHistory";
+import { openStore } from "#lib/persistence/valueStore";
+import type { ConnectionHistoryByDevice } from "#lib/types/connectionHistory";
 
 const STORE_FILE = "connection-history.json";
 const HISTORY_KEY = "eventsByDevice";
 
 async function getStore() {
-  return load(STORE_FILE, { autoSave: false, defaults: {} });
+  return openStore(STORE_FILE);
 }
 
 export async function readConnectionHistory(): Promise<ConnectionHistoryByDevice> {
