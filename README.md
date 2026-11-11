@@ -23,9 +23,11 @@ Firmwares we intend to support (links for context):
 | Heart Rate | ✅ |
 | Notifications | ✅ |
 | Steps | ✅ |
+| Kongle battery history | ⚠️ |
+| Media control | ✅ |
 | DFU / OTA | ⚠️ |
 | Companion UART | ❌ |
-| Kongle (placeholder) | ❌ |
+| Kongle watch config | ❌ |
 | Wasp-os (placeholder) | ❌ |
 
 ✅ done · ⚠️ partial · ❌ not implemented — see [**docs/features/catalog.md**](docs/features/catalog.md) for feature IDs, GATT details, and firmware matrix.
