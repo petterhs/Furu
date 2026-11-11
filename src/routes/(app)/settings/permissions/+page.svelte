@@ -6,12 +6,15 @@
     refreshPermissionsStatus,
     requestPromptablePermissions,
     type PermissionStatusRow,
-  } from "$lib/stores/permissions";
+  } from "#lib/stores/permissions";
+  import { toastCaught } from "#lib/stores/toast";
+  import Card from "#lib/components/ui/Card.svelte";
+  import PageHeading from "#lib/components/ui/PageHeading.svelte";
 
   let rows = $state<PermissionStatusRow[]>([]);
   let loading = $state(true);
 
-  async function checkPermissions(): Promise<void> {
+  async function refresh(): Promise<void> {
     loading = true;
     try {
       rows = await refreshPermissionsStatus();
@@ -20,51 +23,49 @@
     }
   }
 
-  async function requestPermissions(): Promise<void> {
+  async function request(): Promise<void> {
     loading = true;
     try {
       rows = await requestPromptablePermissions();
+    } catch (error) {
+      toastCaught("Could not request permissions", error);
     } finally {
       loading = false;
     }
   }
 
-  async function openNotificationSettings(): Promise<void> {
+  async function openListenerSettings(): Promise<void> {
     loading = true;
     try {
       await openNotificationListenerSettings();
       rows = await refreshPermissionsStatus();
+    } catch (error) {
+      toastCaught("Could not open Android settings", error);
     } finally {
       loading = false;
     }
   }
 
   onMount(() => {
-    void checkPermissions();
+    void refresh();
   });
 </script>
 
-<section class="grid gap-4">
-  <h2 class="m-0 mb-2 text-base font-semibold">Permissions</h2>
-  <article class="card preset-tonal-surface border border-[color:var(--color-surface-200-800)] p-4">
-    <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-      Check device permissions needed for BLE and notification forwarding.
-    </p>
+<div class="grid gap-4">
+  <PageHeading
+    title="Permissions"
+    description="What Furu needs for Bluetooth and for forwarding notifications."
+  />
 
+  <Card>
     {#if loading}
-      <p class="m-0 mt-4 text-sm text-[color:var(--color-surface-700-300)]">Checking permissions...</p>
+      <p class="m-0 text-sm text-surface-700-300">Checking permissions…</p>
     {:else}
-      <ul class="m-0 mt-4 list-none space-y-2 p-0">
+      <ul class="m-0 grid list-none gap-1.5 p-0">
         {#each rows as row (row.id)}
-          <li
-            class="flex items-center justify-between gap-3 rounded-md border border-[color:var(--color-surface-200-800)] px-3 py-2"
-          >
-            <span class="text-sm">{row.label}</span>
-            <span
-              class={`inline-flex items-center gap-1 text-sm ${
-                row.granted ? "text-[color:var(--color-success-500)]" : "text-[color:var(--color-error-500)]"
-              }`}
-            >
+          <li class="flex items-center justify-between gap-3 rounded-lg border border-surface-200-800 px-3 py-2">
+            <span class="min-w-0 text-sm">{row.label}</span>
+            <span class={["inline-flex shrink-0 items-center gap-1 text-xs font-medium", row.granted ? "text-success-700-300" : "text-error-700-300"].join(" ")}>
               {#if row.granted}
                 <Check class="size-4" aria-hidden="true" />
                 Granted
@@ -76,28 +77,24 @@
           </li>
         {/each}
       </ul>
+      {#if rows.some((row) => row.id === "notificationListener" && !row.granted)}
+        <p class="m-0 mt-3 text-xs text-surface-700-300">
+          Notification-listener access can only be granted in Android's settings; Furu cannot
+          show that prompt itself.
+        </p>
+      {/if}
     {/if}
 
-    <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      <button class="btn preset-tonal-primary" type="button" onclick={() => void checkPermissions()} disabled={loading}>
-        Check permissions
+    <div class="mt-4 grid gap-2 sm:grid-cols-3">
+      <button class="btn btn-sm preset-tonal-surface justify-center" type="button" onclick={() => void refresh()} disabled={loading}>
+        Check again
       </button>
-      <button
-        class="btn preset-filled-primary-500"
-        type="button"
-        onclick={() => void requestPermissions()}
-        disabled={loading}
-      >
-        Request permissions
+      <button class="btn btn-sm preset-filled-primary-500 justify-center" type="button" onclick={() => void request()} disabled={loading}>
+        Request
       </button>
-      <button
-        class="btn preset-tonal-surface"
-        type="button"
-        onclick={() => void openNotificationSettings()}
-        disabled={loading}
-      >
-        Open notification access settings
+      <button class="btn btn-sm preset-tonal-surface justify-center" type="button" onclick={() => void openListenerSettings()} disabled={loading}>
+        Notification access…
       </button>
     </div>
-  </article>
-</section>
+  </Card>
+</div>

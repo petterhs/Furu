@@ -1,10 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { Search } from "@lucide/svelte";
   import {
     notificationFilters,
     refreshSeenPackagesFromRecent,
     toggleBlockedPackage,
-  } from "$lib/stores/notificationFilters";
+  } from "#lib/stores/notificationFilters";
+  import { toastCaught } from "#lib/stores/toast";
+  import Card from "#lib/components/ui/Card.svelte";
+  import EmptyState from "#lib/components/ui/EmptyState.svelte";
+  import ListRow from "#lib/components/ui/ListRow.svelte";
+  import PageHeading from "#lib/components/ui/PageHeading.svelte";
 
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -23,19 +29,19 @@
     error = null;
     try {
       await refreshSeenPackagesFromRecent();
-    } catch (err) {
-      error = err instanceof Error ? err.message : "Failed to refresh seen apps.";
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : "Failed to refresh seen apps.";
     } finally {
       loading = false;
     }
   }
 
-  async function handleBlockedToggle(packageName: string, blocked: boolean): Promise<void> {
+  async function toggle(packageName: string, blocked: boolean): Promise<void> {
     error = null;
     try {
       await toggleBlockedPackage(packageName, blocked);
-    } catch (err) {
-      error = err instanceof Error ? err.message : "Failed to update blocklist.";
+    } catch (caught) {
+      toastCaught("Could not update the blocklist", caught);
     }
   }
 
@@ -44,63 +50,67 @@
   });
 </script>
 
-<section class="grid gap-4">
-  <h2 class="m-0 mb-1 text-base font-semibold">Notification Filters</h2>
-  <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-    Block specific Android app packages so their notifications are not forwarded to your watch.
-  </p>
-
-  <article class="card preset-tonal-surface border border-[color:var(--color-surface-200-800)] p-4">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">
-        Seen: {$notificationFilters.seenPackages.length} | Blocked: {$notificationFilters.blockedPackages.length}
-      </p>
+<div class="grid gap-4">
+  <PageHeading
+    title="Notification filters"
+    description="Block specific Android apps so their alerts never reach the watch."
+  >
+    {#snippet actions()}
       <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => void refreshSeen()} disabled={loading}>
-        {loading ? "Refreshing..." : "Refresh seen apps"}
+        {loading ? "Refreshing…" : "Refresh apps"}
       </button>
+    {/snippet}
+  </PageHeading>
+
+  <Card>
+    <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-surface-700-300">
+      <span>{$notificationFilters.seenPackages.length} apps seen</span>
+      <span>{$notificationFilters.blockedPackages.length} blocked</span>
     </div>
 
-    <label class="label mt-3">
-      <span class="label-text">Filter packages</span>
+    <label class="input mt-3 flex items-center gap-2">
+      <Search class="size-4 shrink-0 text-surface-700-300" aria-hidden="true" />
       <input
-        class="input"
+        class="min-w-0 flex-1 bg-transparent outline-none"
         type="search"
-        placeholder="Search package name..."
+        placeholder="Search package name…"
         bind:value={query}
         disabled={$notificationFilters.seenPackages.length === 0}
+        aria-label="Search package name"
       />
     </label>
 
     {#if error}
-      <p class="m-0 mt-3 text-sm text-[color:var(--color-error-500)]">{error}</p>
+      <p class="m-0 mt-3 text-sm text-error-500">{error}</p>
     {/if}
 
     {#if $notificationFilters.seenPackages.length === 0}
-      <p class="m-0 mt-4 text-sm text-[color:var(--color-surface-700-300)]">
-        No app packages seen yet. Receive at least one forwarded notification first, then refresh.
-      </p>
+      <div class="mt-3">
+        <EmptyState
+          title="No apps seen yet"
+          description="Receive at least one forwarded notification, then refresh to list the apps here."
+        />
+      </div>
     {:else}
-      <ul class="m-0 mt-4 list-none space-y-2 p-0">
+      <div class="mt-3 grid gap-1.5">
         {#each filteredSeenPackages as packageName (packageName)}
-          <li
-            class="flex items-center justify-between gap-3 rounded-md border border-[color:var(--color-surface-200-800)] px-3 py-2"
-          >
-            <span class="truncate font-mono text-xs sm:text-sm">{packageName}</span>
-            <label class="flex shrink-0 cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                class="checkbox"
-                checked={blockedSet.has(packageName)}
-                onchange={(event) =>
-                  void handleBlockedToggle(packageName, (event.currentTarget as HTMLInputElement).checked)}
-              />
-              <span>Blocked</span>
-            </label>
-          </li>
+          <ListRow title={packageName} muted={blockedSet.has(packageName)}>
+            {#snippet trailing()}
+              <label class="flex shrink-0 cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  class="checkbox"
+                  checked={blockedSet.has(packageName)}
+                  onchange={(event) => void toggle(packageName, event.currentTarget.checked)}
+                />
+                <span class="text-xs">Blocked</span>
+              </label>
+            {/snippet}
+          </ListRow>
         {:else}
-          <li class="text-sm text-[color:var(--color-surface-700-300)]">No packages match your filter.</li>
+          <p class="m-0 text-sm text-surface-700-300">No packages match “{query}”.</p>
         {/each}
-      </ul>
+      </div>
     {/if}
-  </article>
-</section>
+  </Card>
+</div>

@@ -2,9 +2,12 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { Switch } from "@skeletonlabs/skeleton-svelte";
-  import { showCurrentTimeSyncSettings, showHeartRateLoggingSettings } from "$lib/profileCapabilities";
-  import { profiles } from "$lib/stores/bleSession";
-  import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
+  import { FeatureId } from "#lib/bleContract";
+  import { showCurrentTimeSyncSettings, showHeartRateLoggingSettings } from "#lib/profileCapabilities";
+  import { profiles } from "#lib/stores/bleSession";
+  import { deviceProfileCatalog } from "#lib/stores/deviceProfiles";
+  import { confirm } from "#lib/stores/confirm";
+  import { toastCaught, toastSuccess } from "#lib/stores/toast";
   import {
     AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
     AUTO_RECONNECT_INTERVAL_MAX_MINUTES,
@@ -17,17 +20,36 @@
     clampAutoReconnectIntervalMinutes,
     clampAutoReconnectMaxAttempts,
     clampCtsSyncIntervalMinutes,
+    deviceDisplayName,
     forgetRememberedDevice,
     rememberedDevices,
     updateRememberedDevice,
-    deviceDisplayName,
-  } from "$lib/stores/devices";
-  import { findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
-  import { dfuInProgress } from "$lib/stores/dfuSession";
+  } from "#lib/stores/devices";
+  import { dfuInProgress } from "#lib/stores/dfuSession";
+  import { forgetWatchConfig } from "#lib/stores/watchConfig";
+  import { findRememberedByDeviceRouteParam } from "#lib/utils/deviceId";
+  import WatchConfigurationCard from "#lib/components/device/WatchConfigurationCard.svelte";
+  import Card from "#lib/components/ui/Card.svelte";
+  import PageHeading from "#lib/components/ui/PageHeading.svelte";
+  import SettingRow from "#lib/components/ui/SettingRow.svelte";
 
-  const deviceId = $derived(page.params.deviceId);
-  let nameError = $state<string | null>(null);
+  const deviceId = $derived(page.params.deviceId ?? "");
   const remembered = $derived(findRememberedByDeviceRouteParam(deviceId, $rememberedDevices));
+
+  /*
+   * The nickname draft is keyed by device id so switching devices starts from
+   * that device's saved value without a state-writing effect.
+   */
+  let nameDrafts = $state<Record<string, string>>({});
+  let nameError = $state<string | null>(null);
+  let savingName = $state(false);
+
+  const nameDraft = $derived(nameDrafts[deviceId] ?? remembered?.nickname ?? "");
+
+  function setNameDraft(value: string): void {
+    nameDrafts = { ...nameDrafts, [deviceId]: value };
+  }
+
   const profilePreference = $derived(remembered?.profilePreference ?? "auto");
   const notificationsEnabled = $derived(remembered?.notificationsEnabled ?? true);
   const showCts = $derived(
@@ -53,258 +75,297 @@
   const ctsInterval = $derived(
     clampCtsSyncIntervalMinutes(remembered?.currentTimeSyncIntervalMinutes ?? CTS_SYNC_DEFAULT_MINUTES),
   );
-
   const intervalPresets = [5, 15, 30, 60, 120, 360, 720, 1440] as const;
+  const intervalOptions = $derived.by(() => {
+    const base = [...intervalPresets] as number[];
+    if (!base.includes(ctsInterval)) {
+      base.push(ctsInterval);
+      base.sort((a, b) => a - b);
+    }
+    return base;
+  });
 
-  const intervalOptions = $derived(
-    (() => {
-      const base = [...intervalPresets] as number[];
-      if (!base.includes(ctsInterval)) {
-        base.push(ctsInterval);
-        base.sort((a, b) => a - b);
-      }
-      return base;
-    })(),
+  /** Kongle devices get the watch-setup card; other profiles cannot use it. */
+  const isKongle = $derived(
+    Boolean(remembered) &&
+      (remembered!.profilePreference === "kongle" || remembered!.detectedProfileId === "kongle"),
+  );
+  const watchConfigSupported = $derived(
+    isKongle ||
+      $deviceProfileCatalog.profiles
+        .find((profile) => profile.id === profilePreference)
+        ?.featureIds.includes(FeatureId.kongleWatchConfig) === true,
   );
 
-  async function onPreferenceChange(value: string): Promise<void> {
+  async function patch(patchValues: Parameters<typeof updateRememberedDevice>[1], errorTitle: string): Promise<void> {
     if (!remembered) return;
-    await updateRememberedDevice(remembered.id, { profilePreference: value });
+    try {
+      await updateRememberedDevice(remembered.id, patchValues);
+    } catch (error) {
+      toastCaught(errorTitle, error);
+    }
   }
 
-  async function onNameChange(value: string): Promise<void> {
-    if (!remembered) return;
+  async function saveName(): Promise<void> {
+    if (!remembered || savingName) return;
+    savingName = true;
     nameError = null;
-    try { await updateRememberedDevice(remembered.id, { nickname: value }); }
-    catch (error) { nameError = String(error); }
+    try {
+      await updateRememberedDevice(remembered.id, { nickname: nameDraft });
+      // Clear the local draft so the field follows the saved value again.
+      const next = { ...nameDrafts };
+      delete next[deviceId];
+      nameDrafts = next;
+      toastSuccess("Device name saved");
+    } catch (error) {
+      nameError = String(error);
+    } finally {
+      savingName = false;
+    }
   }
 
   async function onForget(): Promise<void> {
     if (!remembered) return;
-    if (!(await forgetRememberedDevice(remembered.id))) return;
+    const ok = await confirm({
+      title: `Forget ${deviceDisplayName(remembered)}?`,
+      body: "This removes the device, its local settings and its history from Furu. The watch itself keeps its firmware and pairing.",
+      confirmLabel: "Forget device",
+      destructive: true,
+    });
+    if (!ok) return;
+    const id = remembered.id;
+    if (!(await forgetRememberedDevice(id))) return;
+    await forgetWatchConfig(id);
     await goto("/home");
   }
 </script>
 
-<section class="grid gap-4">
-  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-    <h2 class="m-0 mb-3 text-base font-semibold">Device Settings</h2>
-    {#if remembered}
-      <p class="m-0"><strong>{deviceDisplayName(remembered)}</strong></p>
-      <p class="m-0 mt-2 font-mono text-sm">{remembered.address}</p>
+<div class="grid gap-4">
+  <PageHeading
+    title={remembered ? deviceDisplayName(remembered) : "Unknown device"}
+    description="Settings and watch screen"
+  >
+    {#snippet actions()}
+      <a class="btn btn-sm preset-tonal-surface" href={`/device/${deviceId}`}>Overview</a>
+    {/snippet}
+  </PageHeading>
 
-      <label class="label mt-4">
-        <span class="label-text">Device name in Furu</span>
-        <input class="input" maxlength="60" value={remembered.nickname ?? ""}
-          placeholder={remembered.name} onchange={(e) => onNameChange(e.currentTarget.value)} />
-      </label>
-      <p class="m-0 mt-2 text-xs">BLE name: {remembered.name}. Leave empty to use this name.</p>
-      {#if nameError}<p class="text-error-500" role="alert">{nameError}</p>{/if}
-
-      <label class="label mt-4">
-        <span class="label-text">Device profile</span>
-        <select
-          class="select"
-          disabled={$dfuInProgress}
-          value={profilePreference}
-          onchange={(e) => onPreferenceChange((e.currentTarget as HTMLSelectElement).value)}
-        >
-          <option value="auto">auto (name detection)</option>
-          {#each $profiles as profile (profile.id)}
-            <option value={profile.id}>{profile.label}</option>
-          {/each}
-        </select>
-      </label>
-      <p class="m-0 mt-2 text-xs text-[color:var(--color-surface-700-300)]">
-        Edit profiles and features under
-        <a class="anchor" href="/settings/device-profiles">Settings → Device Profiles</a>.
+  {#if !remembered}
+    <Card>
+      <p class="m-0 text-sm text-surface-700-300">
+        Furu does not know this device. It may have been forgotten on another screen.
       </p>
-
-      <Switch
-        class="mt-4 flex w-full items-center justify-between gap-4"
-        checked={notificationsEnabled}
-        disabled={!remembered}
-        onCheckedChange={({ checked }) => {
-          if (!remembered) return;
-          void updateRememberedDevice(remembered.id, { notificationsEnabled: checked });
-        }}
-      >
-        <Switch.Label class="text-sm">Notifications enabled</Switch.Label>
-        <Switch.HiddenInput />
-        <Switch.Control class="preset-filled-primary-500">
-          <Switch.Thumb />
-        </Switch.Control>
-      </Switch>
-
-      <Switch
-        class="mt-4 flex w-full items-center justify-between gap-4"
-        checked={autoReconnect}
-        disabled={!remembered}
-        onCheckedChange={({ checked }) => {
-          if (!remembered) return;
-          void updateRememberedDevice(remembered.id, { autoReconnect: checked });
-        }}
-      >
-        <Switch.Label class="text-sm">Auto-reconnect after unexpected disconnect</Switch.Label>
-        <Switch.HiddenInput />
-        <Switch.Control class="preset-filled-primary-500">
-          <Switch.Thumb />
-        </Switch.Control>
-      </Switch>
-      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
-        When the link drops without using Disconnect, the app retries in the background using a direct connect (no BLE
-        scan) to save phone battery. See Logs for attempts.
-      </p>
-      <label class="label mt-4">
-        <span class="label-text">Minutes between reconnect attempts</span>
-        <input
-          class="input"
-          type="number"
-          min={AUTO_RECONNECT_INTERVAL_MIN_MINUTES}
-          max={AUTO_RECONNECT_INTERVAL_MAX_MINUTES}
-          step="1"
-          value={reconnectIntervalMinutes}
-          onchange={(e) => {
-            if (!remembered) return;
-            const v = Number((e.currentTarget as HTMLInputElement).value);
-            void updateRememberedDevice(remembered.id, { autoReconnectIntervalMinutes: v });
-          }}
-        />
-      </label>
-      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
-        Clamped between {AUTO_RECONNECT_INTERVAL_MIN_MINUTES} and {AUTO_RECONNECT_INTERVAL_MAX_MINUTES} minutes (default
-        {AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES}).
-        The first reconnect attempt starts after five seconds; this interval applies to retries after a failed attempt.
-      </p>
-
-      <label class="label mt-4">
-        <span class="label-text">Max failed reconnect attempts (per disconnect)</span>
-        <input
-          class="input"
-          type="number"
-          min="0"
-          max={AUTO_RECONNECT_MAX_ATTEMPTS_CAP}
-          step="1"
-          value={reconnectMaxAttempts}
-          onchange={(e) => {
-            if (!remembered) return;
-            const v = Number((e.currentTarget as HTMLInputElement).value);
-            void updateRememberedDevice(remembered.id, { autoReconnectMaxAttempts: v });
-          }}
-        />
-      </label>
-      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
-        <strong>0</strong> = no limit (default): keep retrying until the link works or you disconnect. Set to a positive
-        number to stop after that many failed tries in a row (max {AUTO_RECONNECT_MAX_ATTEMPTS_CAP}).
-      </p>
-
-      <Switch
-        class="mt-4 flex w-full items-center justify-between gap-4"
-        checked={replayMissed}
-        disabled={!remembered}
-        onCheckedChange={({ checked }) => {
-          if (!remembered) return;
-          void updateRememberedDevice(remembered.id, { replayMissedNotificationsOnReconnect: checked });
-        }}
-      >
-        <Switch.Label class="text-sm">Replay missed phone notifications after auto-reconnect</Switch.Label>
-        <Switch.HiddenInput />
-        <Switch.Control class="preset-filled-primary-500">
-          <Switch.Thumb />
-        </Switch.Control>
-      </Switch>
-      <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">
-        Manual connects always skip old notifications so pairing does not spam the watch. This only affects automatic
-        reconnects.
-      </p>
-
-      {#if showCts}
-        <div class="mt-6 border-t border-[color:var(--color-surface-200-800)] pt-4">
-          <h3 class="m-0 mb-2 text-sm font-semibold">Current time sync (CTS)</h3>
-          {#if profilePreference === "auto"}
-            <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-              Profile preference is <strong>auto</strong>: the app picks a profile from the device BLE name using your
-              <a class="anchor" href="/settings/device-profiles">Device Profiles</a>. CTS sync runs when that
-              profile includes current time.
+    </Card>
+  {:else}
+    <Card title="Identity">
+      <div class="grid gap-4">
+        <SettingRow label="Name in Furu" hint="Only a label; firmware detection uses the Bluetooth name." stacked>
+          <div class="flex gap-2">
+            <input
+              class="input flex-1"
+              maxlength="60"
+              placeholder={remembered.name}
+              value={nameDraft}
+              oninput={(event) => setNameDraft(event.currentTarget.value)}
+            />
+            <button
+              class="btn btn-sm preset-filled-primary-500 shrink-0"
+              type="button"
+              disabled={savingName}
+              onclick={() => void saveName()}
+            >
+              {savingName ? "Saving…" : "Save"}
+            </button>
+          </div>
+          {#snippet footer()}
+            <p class="m-0 text-xs text-surface-700-300">
+              Bluetooth name: {remembered.name}. Clear the field to fall back to it.
             </p>
-          {:else}
-            <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-              CTS sync applies while connected and the active profile includes current time.
-            </p>
-          {/if}
-          <p class="m-0 mt-2 text-xs text-[color:var(--color-surface-700-300)]">
-            Interval is clamped between {CTS_SYNC_MIN_MINUTES} and {CTS_SYNC_MAX_MINUTES} minutes.
-          </p>
-          <Switch
-            class="mt-4 flex w-full items-center justify-between gap-4"
-            checked={ctsEnabled}
-            disabled={!remembered}
-            onCheckedChange={({ checked }) => {
-              if (!remembered) return;
-              void updateRememberedDevice(remembered.id, { currentTimeSyncEnabled: checked });
-            }}
+            {#if nameError}<p class="m-0 mt-1 text-xs text-error-500" role="alert">{nameError}</p>{/if}
+          {/snippet}
+        </SettingRow>
+
+        <SettingRow label="Device profile" hint="Controls which Bluetooth features Furu uses." stacked>
+          <select
+            class="select"
+            disabled={$dfuInProgress}
+            value={profilePreference}
+            onchange={(event) => void patch({ profilePreference: event.currentTarget.value }, "Could not change the profile")}
           >
-            <Switch.Label class="text-sm">Automatic time sync</Switch.Label>
+            <option value="auto">Auto (detect from name)</option>
+            {#each $profiles as profile (profile.id)}
+              <option value={profile.id}>{profile.label}</option>
+            {/each}
+          </select>
+          {#snippet footer()}
+            <p class="m-0 text-xs text-surface-700-300">
+              Edit profiles and their features under
+              <a class="anchor" href="/settings/device-profiles">Settings → Device profiles</a>.
+            </p>
+          {/snippet}
+        </SettingRow>
+      </div>
+    </Card>
+
+    <Card title="Notifications">
+      <SettingRow label="Forward notifications" hint="Send this watch the alerts allowed by the global filters.">
+        <Switch
+          checked={notificationsEnabled}
+          onCheckedChange={({ checked }) => void patch({ notificationsEnabled: checked }, "Could not save this setting")}
+        >
+          <Switch.HiddenInput />
+          <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
+        </Switch>
+      </SettingRow>
+    </Card>
+
+    <Card title="Connection">
+      <div class="grid gap-4">
+        <SettingRow
+          label="Reconnect automatically"
+          hint="After an unexpected drop, retry in the background with a direct connect instead of scanning."
+        >
+          <Switch
+            checked={autoReconnect}
+            onCheckedChange={({ checked }) => void patch({ autoReconnect: checked }, "Could not save this setting")}
+          >
             <Switch.HiddenInput />
-            <Switch.Control class="preset-filled-primary-500">
-              <Switch.Thumb />
-            </Switch.Control>
+            <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
           </Switch>
-          <label class="label mt-4">
-            <span class="label-text">Minutes between syncs</span>
+        </SettingRow>
+
+        <SettingRow
+          label="Minutes between retries"
+          hint={`${AUTO_RECONNECT_INTERVAL_MIN_MINUTES}–${AUTO_RECONNECT_INTERVAL_MAX_MINUTES} minutes. The first retry starts after five seconds.`}
+          stacked
+        >
+          <input
+            class="input"
+            type="number"
+            min={AUTO_RECONNECT_INTERVAL_MIN_MINUTES}
+            max={AUTO_RECONNECT_INTERVAL_MAX_MINUTES}
+            step="1"
+            value={reconnectIntervalMinutes}
+            onchange={(event) =>
+              void patch(
+                { autoReconnectIntervalMinutes: Number(event.currentTarget.value) },
+                "Could not save the retry interval",
+              )}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Maximum failed retries"
+          hint={`0 means no limit. Default ${AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT}, capped at ${AUTO_RECONNECT_MAX_ATTEMPTS_CAP}.`}
+          stacked
+        >
+          <input
+            class="input"
+            type="number"
+            min="0"
+            max={AUTO_RECONNECT_MAX_ATTEMPTS_CAP}
+            step="1"
+            value={reconnectMaxAttempts}
+            onchange={(event) =>
+              void patch(
+                { autoReconnectMaxAttempts: Number(event.currentTarget.value) },
+                "Could not save the retry limit",
+              )}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Replay missed notifications"
+          hint="Only after automatic reconnects. Manual connects always skip the backlog so pairing does not spam the watch."
+        >
+          <Switch
+            checked={replayMissed}
+            onCheckedChange={({ checked }) =>
+              void patch({ replayMissedNotificationsOnReconnect: checked }, "Could not save this setting")}
+          >
+            <Switch.HiddenInput />
+            <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
+          </Switch>
+        </SettingRow>
+      </div>
+    </Card>
+
+    {#if showCts}
+      <Card
+        title="Time sync"
+        description="Keeps the watch clock aligned with the phone while connected."
+      >
+        <div class="grid gap-4">
+          <SettingRow
+            label="Sync automatically"
+            hint={profilePreference === "auto"
+              ? "With the profile on auto, sync runs when the detected profile includes current time."
+              : "Runs while the watch is connected and the profile includes current time."}
+          >
+            <Switch
+              checked={ctsEnabled}
+              onCheckedChange={({ checked }) => void patch({ currentTimeSyncEnabled: checked }, "Could not save this setting")}
+            >
+              <Switch.HiddenInput />
+              <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
+            </Switch>
+          </SettingRow>
+          <SettingRow
+            label="Minutes between syncs"
+            hint={`${CTS_SYNC_MIN_MINUTES}–${CTS_SYNC_MAX_MINUTES} minutes.`}
+            stacked
+          >
             <select
               class="select"
               value={ctsInterval}
-              onchange={(e) => {
-                if (!remembered) return;
-                const v = Number((e.currentTarget as HTMLSelectElement).value);
-                void updateRememberedDevice(remembered.id, { currentTimeSyncIntervalMinutes: v });
-              }}
+              onchange={(event) =>
+                void patch(
+                  { currentTimeSyncIntervalMinutes: Number(event.currentTarget.value) },
+                  "Could not save the sync interval",
+                )}
             >
-              {#each intervalOptions as m (m)}
-                <option value={m}>{m} min</option>
+              {#each intervalOptions as minutes (minutes)}
+                <option value={minutes}>{minutes} min</option>
               {/each}
             </select>
-          </label>
+          </SettingRow>
         </div>
-      {/if}
-
-      {#if showHr}
-        <div class="mt-6 border-t border-[color:var(--color-surface-200-800)] pt-4">
-          <h3 class="m-0 mb-2 text-sm font-semibold">Heart rate</h3>
-          <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-            Shown when the selected device profile (or auto detection candidates) includes heart rate.
-          </p>
-          <Switch
-            class="mt-4 flex w-full items-center justify-between gap-4"
-            checked={heartRateLoggingEnabled}
-            disabled={!remembered}
-            onCheckedChange={({ checked }) => {
-              if (!remembered) return;
-              void updateRememberedDevice(remembered.id, { heartRateLoggingEnabled: checked });
-            }}
-          >
-            <Switch.Label class="text-sm">Enable heart rate logging</Switch.Label>
-            <Switch.HiddenInput />
-            <Switch.Control class="preset-filled-primary-500">
-              <Switch.Thumb />
-            </Switch.Control>
-          </Switch>
-        </div>
-      {/if}
-    {:else}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Device not found.</p>
+      </Card>
     {/if}
-  </article>
 
-  <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-    <button
-      class="btn btn-sm preset-filled-error-500"
-      type="button"
-      onclick={onForget}
-      disabled={!remembered || $dfuInProgress}
-    >
-      Forget / Unbind Device
-    </button>
-  </div>
-</section>
+    {#if showHr}
+      <Card title="Heart rate">
+        <SettingRow
+          label="Enable heart rate logging"
+          hint="Only applies when the profile includes the heart rate service."
+        >
+          <Switch
+            checked={heartRateLoggingEnabled}
+            onCheckedChange={({ checked }) => void patch({ heartRateLoggingEnabled: checked }, "Could not save this setting")}
+          >
+            <Switch.HiddenInput />
+            <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
+          </Switch>
+        </SettingRow>
+      </Card>
+    {/if}
+
+    {#if remembered && watchConfigSupported}
+      <WatchConfigurationCard deviceId={remembered.id} locked={$dfuInProgress} />
+    {/if}
+
+    <Card title="Remove this device">
+      <p class="m-0 text-sm text-surface-700-300">
+        Forgetting a device clears its nickname, preferences and the history Furu recorded.
+      </p>
+      <button
+        class="btn btn-sm preset-filled-error-500 mt-3"
+        type="button"
+        disabled={$dfuInProgress}
+        onclick={() => void onForget()}
+      >
+        Forget device
+      </button>
+    </Card>
+  {/if}
+</div>
