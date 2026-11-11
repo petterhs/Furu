@@ -1,5 +1,5 @@
-import { profilePreferenceIncludesCurrentTime, profilePreferenceIncludesHeartRate } from "$lib/deviceProfileEffective";
-import type { DeviceProfileCatalog } from "$lib/types/deviceProfileCatalog";
+import { profilePreferenceIncludesCurrentTime, profilePreferenceIncludesHeartRate } from "#lib/deviceProfileEffective";
+import type { DeviceProfileCatalog } from "#lib/types/deviceProfileCatalog";
 
 /** CTS block: always show for `auto` so users can preconfigure; otherwise if the profile includes CTS. */
 export function showCurrentTimeSyncSettings(

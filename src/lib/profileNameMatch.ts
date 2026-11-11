@@ -1,5 +1,5 @@
-import { ProfileId } from "$lib/bleContract";
-import type { ProfileNameRule } from "$lib/types/profileNameRule";
+import { ProfileId } from "#lib/bleContract";
+import type { ProfileNameRule } from "#lib/types/profileNameRule";
 
 /** First matching rule wins; matching is case-insensitive. Empty advertisement name → `unknown`. */
 export function resolveProfileIdFromDeviceName(

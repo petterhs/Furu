@@ -4,8 +4,8 @@ import {
   type NotificationFilters,
   readNotificationFilters,
   writeNotificationFilters,
-} from "$lib/persistence/notificationFiltersStore";
-import { listRecentNotifications } from "$lib/stores/notificationForwarder";
+} from "#lib/persistence/notificationFiltersStore";
+import { listRecentNotifications } from "#lib/stores/notificationForwarder";
 
 export const notificationFilters = writable<NotificationFilters>(defaultNotificationFilters());
 export const notificationFiltersHydrated = writable(false);

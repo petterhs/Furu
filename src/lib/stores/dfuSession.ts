@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { BleOperationGate } from "$lib/bleOperationGate";
+import { BleOperationGate } from "#lib/bleOperationGate";
 
 export type DfuSession = {
   deviceId: string;

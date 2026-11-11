@@ -1,14 +1,14 @@
-import { mergeNativeEvents, type NativeHistoryEvent } from "$lib/connectionEventMerge";
+import { mergeNativeEvents, type NativeHistoryEvent } from "#lib/connectionEventMerge";
 import { get, writable } from "svelte/store";
 import {
   readConnectionHistory,
   writeConnectionHistory,
-} from "$lib/persistence/connectionHistoryStore";
+} from "#lib/persistence/connectionHistoryStore";
 import type {
   ConnectionHistoryByDevice,
   ConnectionHistoryEvent,
   ConnectionHistorySegment,
-} from "$lib/types/connectionHistory";
+} from "#lib/types/connectionHistory";
 
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_EVENTS_PER_DEVICE = 2000;
