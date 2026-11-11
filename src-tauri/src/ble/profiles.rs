@@ -101,6 +101,7 @@ pub fn features_for_profile(profile: ProfileId) -> &'static [FeatureId] {
             FeatureId::BleMediaControl,
             FeatureId::BleBattery,
             FeatureId::KongleBatteryHistory,
+            FeatureId::KongleWatchConfig,
         ],
     }
 }

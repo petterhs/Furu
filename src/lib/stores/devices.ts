@@ -1,10 +1,11 @@
 import type { BleDevice } from "@mnlphlp/plugin-blec";
 import { get, writable } from "svelte/store";
-import { readRememberedDevices, writeRememberedDevices } from "$lib/persistence/deviceStore";
-import type { RememberedDevice } from "$lib/types/device";
-import { bleAddressesEqual, deviceIdFromAddress } from "$lib/utils/deviceId";
-import { isDfuSessionActive } from "$lib/stores/dfuSession";
-import { observeProfile, profileSuggestionKey } from "$lib/profileObservation";
+import { readRememberedDevices, writeRememberedDevices } from "#lib/persistence/deviceStore";
+import type { RememberedDevice } from "#lib/types/device";
+import { bleAddressesEqual, deviceIdFromAddress } from "#lib/utils/deviceId";
+import { isDfuSessionActive } from "#lib/stores/dfuSession";
+import { forgetWatchConfig } from "#lib/stores/watchConfig";
+import { observeProfile, profileSuggestionKey } from "#lib/profileObservation";
 
 export const rememberedDevices = writable<RememberedDevice[]>([]);
 export const devicesHydrated = writable(false);
@@ -220,5 +221,7 @@ export async function forgetRememberedDevice(id: string): Promise<boolean> {
   const next = get(rememberedDevices).filter((device) => device.id !== id);
   rememberedDevices.set(next);
   await writeRememberedDevices(next);
+  // Preferences and history keyed by this device should not outlive it.
+  await forgetWatchConfig(id);
   return true;
 }

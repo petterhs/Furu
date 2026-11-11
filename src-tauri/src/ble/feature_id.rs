@@ -14,6 +14,7 @@ pub enum FeatureId {
     BleMediaControl,
     InfiniTimeDfu,
     InfiniTimeCompanionUart,
+    KongleWatchConfig,
 }
 
 impl FeatureId {
@@ -30,6 +31,7 @@ impl FeatureId {
             "ble.dis_steps" => Ok(Self::BleStepCount),
             "infinitime.dfu" => Ok(Self::InfiniTimeDfu),
             "infinitime.companion_uart" => Ok(Self::InfiniTimeCompanionUart),
+            "kongle.watch_config" => Ok(Self::KongleWatchConfig),
             _ => Err(format!("unknown feature id: {s}")),
         }
     }
@@ -47,6 +49,7 @@ impl FeatureId {
             Self::BleStepCount => "ble.dis_steps",
             Self::InfiniTimeDfu => "infinitime.dfu",
             Self::InfiniTimeCompanionUart => "infinitime.companion_uart",
+            Self::KongleWatchConfig => "kongle.watch_config",
         }
     }
 }
