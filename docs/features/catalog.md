@@ -57,10 +57,10 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 | Current Time | `ble.current_time` | ✓ | ✓ | — |
 | Battery | `ble.battery` | ✓ | ✓ | — |
 | Kongle battery history | `kongle.battery_history` | — | ✓ | — |
-| Heart Rate | `ble.hr` | ✓ | — | — |
+| Heart Rate | `ble.hr` | ✓ | ✓ (0.4 HR builds; start on watch) | — |
 | Media control | `ble.media_control` | ✓ | ✓ (Kongle 0.4+) | — |
 | Notifications | `ble.anss` | ✓ | ✓ | — |
-| Steps | `ble.dis_steps` | ✓ | — | — |
+| Steps | `ble.dis_steps` | ✓ | ✓ (0.4 sensor builds) | — |
 | DFU / OTA | `infinitime.dfu` | ✓ | — | — |
 | Companion UART | `infinitime.companion_uart` | ✓ | — | — |
 | Kongle watch config | `kongle.watch_config` | — | — (planned) | — |

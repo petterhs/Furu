@@ -30,9 +30,9 @@ export function parseHeartRateMeasurement(data: number[]): number | null {
     offset += 1;
   }
 
-  const sensorContactSupported = (flags & 0x02) !== 0;
+  const sensorContactSupported = (flags & 0x04) !== 0;
   if (sensorContactSupported) {
-    const sensorContactDetected = (flags & 0x04) !== 0;
+    const sensorContactDetected = (flags & 0x02) !== 0;
     if (!sensorContactDetected) return null;
   }
 
