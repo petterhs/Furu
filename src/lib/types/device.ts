@@ -27,10 +27,5 @@ export type RememberedDevice = {
    * sensible upper bound.
    */
   autoReconnectMaxAttempts: number;
-  /**
-   * When true, notifications that arrived on the phone while disconnected may be forwarded after an
-   * automatic reconnect. Manual connects still absorb stale backlog so pairing does not blast the watch.
-   */
-  replayMissedNotificationsOnReconnect: boolean;
 };
 

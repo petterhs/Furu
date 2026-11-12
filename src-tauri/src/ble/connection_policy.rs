@@ -12,7 +12,6 @@ pub struct DevicePolicy {
     pub enabled: bool,
     pub retry_delay_ms: u64,
     pub max_failures: u32,
-    pub replay_notifications: bool,
     pub notifications_enabled: bool,
 }
 

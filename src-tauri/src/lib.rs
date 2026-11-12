@@ -12,6 +12,9 @@ pub fn run() {
         .plugin(tauri_plugin_notification_forwarder::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
+            // Restore the notification watermark before any connection can be
+            // made, so a relaunch cannot replay the phone's buffered alerts.
+            ble::notification_forwarding::load_persisted_watermark(app.handle());
             ble::connection::start(app.handle().clone()).map_err(std::io::Error::other)?;
             ble::notification_forwarding::spawn_background_forwarder(app.handle().clone());
             ble::media::start(app.handle().clone());

@@ -12,6 +12,8 @@ data class NotificationForwardPayload(
     val title: String,
     val message: String,
     val postedAtMs: Long,
+    /** Set when Android reports the notification has left the shade. */
+    val dismissed: Boolean = false,
 )
 
 object NotificationQueue {
@@ -53,6 +55,22 @@ object NotificationQueue {
     fun recent(): List<NotificationForwardPayload> {
         synchronized(recent) {
             return recent.toList()
+        }
+    }
+
+    /**
+     * Marks the entry matching [postedAtMs] as dismissed.
+     *
+     * The recent buffer is only a diagnostic view; forwarding never replays it.
+     * Recording dismissal keeps that view honest, so a notification the user has
+     * already cleared does not appear as if it were still waiting on the phone.
+     */
+    fun markDismissed(postedAtMs: Long) {
+        synchronized(recent) {
+            val index = recent.indexOfLast { it.postedAtMs == postedAtMs }
+            if (index >= 0) {
+                recent[index] = recent[index].copy(dismissed = true)
+            }
         }
     }
 
@@ -135,5 +153,15 @@ class FuruNotificationListenerService : NotificationListenerService() {
             TAG,
             "captured pkg=${sbn.packageName} key=${sbn.key} when=${sbn.postTime} title_len=${title.length} msg_len=${message.length}",
         )
+    }
+
+    /**
+     * Android reports removals for both dismissal and cancellation. Either way the
+     * notification is no longer on the phone, which is exactly what the recent
+     * buffer needs to know.
+     */
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        NotificationQueue.markDismissed(sbn.postTime)
+        Log.d(TAG, "removed pkg=${sbn.packageName} when=${sbn.postTime}")
     }
 }
