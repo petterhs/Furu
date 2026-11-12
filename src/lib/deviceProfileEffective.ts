@@ -1,5 +1,5 @@
-import { FeatureId } from "$lib/bleContract";
-import type { DeviceProfileCatalog } from "$lib/types/deviceProfileCatalog";
+import { FeatureId } from "#lib/bleContract";
+import type { DeviceProfileCatalog } from "#lib/types/deviceProfileCatalog";
 
 export function getFeatureIdsForProfile(catalog: DeviceProfileCatalog, profileId: string): string[] {
   return catalog.profiles.find((p) => p.id === profileId)?.featureIds ?? [];

@@ -1,4 +1,4 @@
-import type { ProfileNameRule } from "$lib/types/profileNameRule";
+import type { ProfileNameRule } from "#lib/types/profileNameRule";
 
 export type DeviceProfileDefinition = {
   id: string;

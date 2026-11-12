@@ -1,4 +1,4 @@
-import type { RememberedDevice } from "$lib/types/device";
+import type { RememberedDevice } from "#lib/types/device";
 
 /**
  * Normalize BLE addresses for comparisons (48-bit public / random static MAC).

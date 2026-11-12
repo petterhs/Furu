@@ -1,12 +1,12 @@
-import { load } from "@tauri-apps/plugin-store";
-import { ProfileId } from "$lib/bleContract";
-import type { ProfileNameRule } from "$lib/types/profileNameRule";
+import { openStore } from "#lib/persistence/valueStore";
+import { ProfileId } from "#lib/bleContract";
+import type { ProfileNameRule } from "#lib/types/profileNameRule";
 
 const STORE_FILE = "profile-name-rules.json";
 const RULES_KEY = "rules";
 
 async function getStore() {
-  return load(STORE_FILE, { autoSave: false, defaults: {} });
+  return openStore(STORE_FILE);
 }
 
 export function defaultProfileNameRules(): ProfileNameRule[] {

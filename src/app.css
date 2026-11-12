@@ -4,6 +4,700 @@
 @import "@skeletonlabs/skeleton-svelte";
 @import "@skeletonlabs/skeleton/themes/catppuccin";
 
+/*
+ * LayerChart ships no stylesheet; its components rely on Tailwind classes
+ * (`fill-none` on line paths, `stroke-surface-200` on markers). Tailwind skips
+ * `node_modules` by default, so those classes were never generated and SVG fell
+ * back to its default black fill — the solid block under the battery line.
+ * Scanning the package emits them.
+ */
+@source "../node_modules/layerchart/dist";
+
+/*
+ * Skeleton ships one Catppuccin ramp and relies on Tailwind's dark mode to pick
+ * the light or dark half of each `x-y` pairing. With no strategy the pairing
+ * follows `prefers-color-scheme`, so a phone in light mode renders the pale
+ * Latte-side ramp. Pinning the strategy to `data-mode` makes Mocha the
+ * deliberate default and lets Settings offer a real choice.
+ */
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
+
+/*
+ * Catppuccin palette.
+ * Palette source: https://github.com/catppuccin/palette v1.8.0
+ * MIT License, Copyright (c) 2021 Catppuccin.
+ *
+ * Two things differ from Skeleton's shipped theme:
+ *
+ * 1. The surface ramp uses the official Latte/Mocha colours, and the page sits
+ *    one step below the card surface so elevation is visible.
+ * 2. Every accent gets a full 50-950 ramp instead of one flat accent colour.
+ *    Skeleton's `preset-*` utilities read the extremes of these ramps (for
+ *    example `preset-tonal-warning` paints `--color-warning-950` and writes
+ *    `--color-warning-fill` text). A ramp whose 950 was still the bright accent
+ *    produced an unreadable solid block with no visible label.
+ *
+ * Both modes follow the Tailwind convention: 50 is lightest, 950 is darkest,
+ * and 500 is the official accent.
+ */
+
+/* ---------------------------------------------------------------- Latte --- */
+[data-theme="catppuccin"] {
+  /* Skeleton 5 reads these on <html> and <body> respectively. */
+  --color-root-bg-light: #e6e9ef; /* mantle */
+  --color-root-bg-dark: #e6e9ef;
+  --typo-base--color-light: #4c4f69;
+  --typo-base--color-dark: #4c4f69;
+  /* Skeleton's default heading colour is a teal that fights the Latte ramp. */
+  --typo-heading--color-light: #8839ef; /* Mauve */
+  --typo-heading--color-dark: #8839ef;
+
+  --color-surface-50: #eff1f5; /* base */
+  --color-surface-100: #dce0e8; /* crust */
+  --color-surface-200: #ccd0da; /* surface0 */
+  --color-surface-300: #bcc0cc; /* surface1 */
+  --color-surface-400: #acb0be; /* surface2 */
+  --color-surface-500: #9ca0b0;
+  --color-surface-600: #8c8fa1;
+  --color-surface-700: #6c6f85; /* subtext0 */
+  --color-surface-800: #5c5f77; /* subtext1 */
+  --color-surface-900: #4c4f69; /* text */
+  --color-surface-950: #3d3f52;
+
+  /* primary */
+  --color-primary-50: #edf3fe;
+  --color-primary-100: #d6e3fd;
+  --color-primary-200: #a8c4fb;
+  --color-primary-300: #7aa5f9;
+  --color-primary-400: #4c85f7;
+  --color-primary-500: #1e66f5;
+  --color-primary-600: #1954c9;
+  --color-primary-700: #13429e;
+  --color-primary-800: #0e3072;
+  --color-primary-900: #091d47;
+  --color-primary-950: #061431;
+  /* secondary */
+  --color-secondary-50: #fdf4fb;
+  --color-secondary-100: #fbe6f6;
+  --color-secondary-200: #f7caeb;
+  --color-secondary-300: #f3aee0;
+  --color-secondary-400: #ee92d6;
+  --color-secondary-500: #ea76cb;
+  --color-secondary-600: #c061a7;
+  --color-secondary-700: #974c83;
+  --color-secondary-800: #6d375f;
+  --color-secondary-900: #44223b;
+  --color-secondary-950: #2f1829;
+  /* tertiary */
+  --color-tertiary-50: #ecf6f7;
+  --color-tertiary-100: #d5ebec;
+  --color-tertiary-200: #a5d5d8;
+  --color-tertiary-300: #76bfc3;
+  --color-tertiary-400: #46a8ae;
+  --color-tertiary-500: #179299;
+  --color-tertiary-600: #13787e;
+  --color-tertiary-700: #0f5e63;
+  --color-tertiary-800: #0b4447;
+  --color-tertiary-900: #072a2c;
+  --color-tertiary-950: #051d1f;
+  /* success */
+  --color-success-50: #f0f7ee;
+  --color-success-100: #dceed8;
+  --color-success-200: #b5daad;
+  --color-success-300: #8ec782;
+  --color-success-400: #67b356;
+  --color-success-500: #40a02b;
+  --color-success-600: #358423;
+  --color-success-700: #29671c;
+  --color-success-800: #1e4b14;
+  --color-success-900: #122e0c;
+  --color-success-950: #0d2009;
+  /* warning */
+  --color-warning-50: #fcf6ed;
+  --color-warning-100: #f9ead6;
+  --color-warning-200: #f3d3a8;
+  --color-warning-300: #ecbc79;
+  --color-warning-400: #e6a54b;
+  --color-warning-500: #df8e1d;
+  --color-warning-600: #b77518;
+  --color-warning-700: #905c13;
+  --color-warning-800: #68420e;
+  --color-warning-900: #402908;
+  --color-warning-950: #2d1c06;
+  /* error */
+  --color-error-50: #fbecef;
+  --color-error-100: #f7d3db;
+  --color-error-200: #eea2b2;
+  --color-error-300: #e4718a;
+  --color-error-400: #db4061;
+  --color-error-500: #d20f39;
+  --color-error-600: #ad0c2f;
+  --color-error-700: #870a25;
+  --color-error-800: #62071b;
+  --color-error-900: #3d0410;
+  --color-error-950: #2a030b;
+
+  /* Contrast for each accent step: readable text on that step. */
+  /* primary */
+  --color-primary-contrast-50: #1e1e2e;
+  --color-primary-contrast-100: #1e1e2e;
+  --color-primary-contrast-200: #1e1e2e;
+  --color-primary-contrast-300: #1e1e2e;
+  --color-primary-contrast-400: #eff1f5;
+  --color-primary-contrast-500: #eff1f5;
+  --color-primary-contrast-600: #eff1f5;
+  --color-primary-contrast-700: #eff1f5;
+  --color-primary-contrast-800: #eff1f5;
+  --color-primary-contrast-900: #eff1f5;
+  --color-primary-contrast-950: #eff1f5;
+  /* secondary */
+  --color-secondary-contrast-50: #1e1e2e;
+  --color-secondary-contrast-100: #1e1e2e;
+  --color-secondary-contrast-200: #1e1e2e;
+  --color-secondary-contrast-300: #1e1e2e;
+  --color-secondary-contrast-400: #1e1e2e;
+  --color-secondary-contrast-500: #eff1f5;
+  --color-secondary-contrast-600: #eff1f5;
+  --color-secondary-contrast-700: #eff1f5;
+  --color-secondary-contrast-800: #eff1f5;
+  --color-secondary-contrast-900: #eff1f5;
+  --color-secondary-contrast-950: #eff1f5;
+  /* tertiary */
+  --color-tertiary-contrast-50: #1e1e2e;
+  --color-tertiary-contrast-100: #1e1e2e;
+  --color-tertiary-contrast-200: #1e1e2e;
+  --color-tertiary-contrast-300: #1e1e2e;
+  --color-tertiary-contrast-400: #eff1f5;
+  --color-tertiary-contrast-500: #eff1f5;
+  --color-tertiary-contrast-600: #eff1f5;
+  --color-tertiary-contrast-700: #eff1f5;
+  --color-tertiary-contrast-800: #eff1f5;
+  --color-tertiary-contrast-900: #eff1f5;
+  --color-tertiary-contrast-950: #eff1f5;
+  /* success */
+  --color-success-contrast-50: #1e1e2e;
+  --color-success-contrast-100: #1e1e2e;
+  --color-success-contrast-200: #1e1e2e;
+  --color-success-contrast-300: #1e1e2e;
+  --color-success-contrast-400: #1e1e2e;
+  --color-success-contrast-500: #eff1f5;
+  --color-success-contrast-600: #eff1f5;
+  --color-success-contrast-700: #eff1f5;
+  --color-success-contrast-800: #eff1f5;
+  --color-success-contrast-900: #eff1f5;
+  --color-success-contrast-950: #eff1f5;
+  /* warning */
+  --color-warning-contrast-50: #1e1e2e;
+  --color-warning-contrast-100: #1e1e2e;
+  --color-warning-contrast-200: #1e1e2e;
+  --color-warning-contrast-300: #1e1e2e;
+  --color-warning-contrast-400: #1e1e2e;
+  --color-warning-contrast-500: #1e1e2e;
+  --color-warning-contrast-600: #eff1f5;
+  --color-warning-contrast-700: #eff1f5;
+  --color-warning-contrast-800: #eff1f5;
+  --color-warning-contrast-900: #eff1f5;
+  --color-warning-contrast-950: #eff1f5;
+  /* error */
+  --color-error-contrast-50: #1e1e2e;
+  --color-error-contrast-100: #1e1e2e;
+  --color-error-contrast-200: #1e1e2e;
+  --color-error-contrast-300: #eff1f5;
+  --color-error-contrast-400: #eff1f5;
+  --color-error-contrast-500: #eff1f5;
+  --color-error-contrast-600: #eff1f5;
+  --color-error-contrast-700: #eff1f5;
+  --color-error-contrast-800: #eff1f5;
+  --color-error-contrast-900: #eff1f5;
+  --color-error-contrast-950: #eff1f5;
+}
+
+/* ---------------------------------------------------------------- Mocha --- */
+/* Both attributes live on <html>. Skeleton reads the `-dark` names inside its
+   own `@variant dark` blocks, so both must be set here. */
+[data-theme="catppuccin"][data-mode="dark"] {
+  --color-root-bg-light: #11111b; /* crust */
+  --color-root-bg-dark: #11111b;
+  --typo-base--color-light: #cdd6f4;
+  --typo-base--color-dark: #cdd6f4;
+
+  /* Text ramp, light to dark — mirrors the light theme so `x-y` pairings work. */
+  --color-surface-50: #cdd6f4; /* text */
+  --color-surface-100: #bac2de; /* subtext1 */
+  --color-surface-200: #a6adc8; /* subtext0 */
+  --color-surface-300: #9399b2; /* overlay2 */
+  --color-surface-400: #7f849c; /* overlay1 */
+  --color-surface-500: #6c7086; /* overlay0 */
+  --color-surface-600: #585b70; /* surface2 */
+  --color-surface-700: #45475a; /* surface1 */
+  --color-surface-800: #313244; /* surface0 */
+  --color-surface-900: #181825; /* mantle */
+  --color-surface-950: #1e1e2e; /* base */
+
+  /* primary */
+  --color-primary-50: #f6f9ff;
+  --color-primary-100: #e9f1fe;
+  --color-primary-200: #d1e2fd;
+  --color-primary-300: #b9d3fc;
+  --color-primary-400: #a1c3fb;
+  --color-primary-500: #89b4fa;
+  --color-primary-600: #7194ce;
+  --color-primary-700: #5874a1;
+  --color-primary-800: #405475;
+  --color-primary-900: #283448;
+  --color-primary-950: #1b2432;
+  /* secondary */
+  --color-secondary-50: #fefafd;
+  --color-secondary-100: #fdf4fb;
+  --color-secondary-200: #fbe7f6;
+  --color-secondary-300: #f9dbf1;
+  --color-secondary-400: #f7ceec;
+  --color-secondary-500: #f5c2e7;
+  --color-secondary-600: #c9a0be;
+  --color-secondary-700: #9e7d95;
+  --color-secondary-800: #725b6c;
+  --color-secondary-900: #473843;
+  --color-secondary-950: #31272e;
+  /* tertiary */
+  --color-tertiary-50: #f6fdfc;
+  --color-tertiary-100: #ecfaf7;
+  --color-tertiary-200: #d6f4ef;
+  --color-tertiary-300: #c0eee6;
+  --color-tertiary-400: #aae8de;
+  --color-tertiary-500: #94e2d5;
+  --color-tertiary-600: #7abaaf;
+  --color-tertiary-700: #5f9289;
+  --color-tertiary-800: #456963;
+  --color-tertiary-900: #2b413e;
+  --color-tertiary-950: #1e2d2b;
+  /* success */
+  --color-success-50: #f8fdf7;
+  --color-success-100: #effaee;
+  --color-success-200: #ddf4db;
+  --color-success-300: #caeec7;
+  --color-success-400: #b8e9b4;
+  --color-success-500: #a6e3a1;
+  --color-success-600: #88bb84;
+  --color-success-700: #6b9268;
+  --color-success-800: #4d6a4b;
+  --color-success-900: #30422f;
+  --color-success-950: #212d20;
+  /* warning */
+  --color-warning-50: #fffdf9;
+  --color-warning-100: #fefaf0;
+  --color-warning-200: #fdf4e0;
+  --color-warning-300: #fbeed0;
+  --color-warning-400: #fae8bf;
+  --color-warning-500: #f9e2af;
+  --color-warning-600: #cdba90;
+  --color-warning-700: #a09271;
+  --color-warning-800: #746952;
+  --color-warning-900: #484133;
+  --color-warning-950: #322d23;
+  /* error */
+  --color-error-50: #fef6f8;
+  --color-error-100: #fdeaef;
+  --color-error-200: #fad2dd;
+  --color-error-300: #f8bacc;
+  --color-error-400: #f5a3ba;
+  --color-error-500: #f38ba8;
+  --color-error-600: #c8728a;
+  --color-error-700: #9d5a6c;
+  --color-error-800: #71414e;
+  --color-error-900: #462831;
+  --color-error-950: #311c22;
+
+  /* Mocha's lavender reads better as a heading than Skeleton's pink. */
+  --typo-heading--color-light: #cba6f7;
+  --typo-heading--color-dark: #cba6f7;
+
+  /* Contrast for each accent step: readable text on that step. */
+  /* primary */
+  --color-primary-contrast-50: #1e1e2e;
+  --color-primary-contrast-100: #1e1e2e;
+  --color-primary-contrast-200: #1e1e2e;
+  --color-primary-contrast-300: #1e1e2e;
+  --color-primary-contrast-400: #1e1e2e;
+  --color-primary-contrast-500: #1e1e2e;
+  --color-primary-contrast-600: #eff1f5;
+  --color-primary-contrast-700: #eff1f5;
+  --color-primary-contrast-800: #eff1f5;
+  --color-primary-contrast-900: #eff1f5;
+  --color-primary-contrast-950: #eff1f5;
+  /* secondary */
+  --color-secondary-contrast-50: #1e1e2e;
+  --color-secondary-contrast-100: #1e1e2e;
+  --color-secondary-contrast-200: #1e1e2e;
+  --color-secondary-contrast-300: #1e1e2e;
+  --color-secondary-contrast-400: #1e1e2e;
+  --color-secondary-contrast-500: #1e1e2e;
+  --color-secondary-contrast-600: #1e1e2e;
+  --color-secondary-contrast-700: #eff1f5;
+  --color-secondary-contrast-800: #eff1f5;
+  --color-secondary-contrast-900: #eff1f5;
+  --color-secondary-contrast-950: #eff1f5;
+  /* tertiary */
+  --color-tertiary-contrast-50: #1e1e2e;
+  --color-tertiary-contrast-100: #1e1e2e;
+  --color-tertiary-contrast-200: #1e1e2e;
+  --color-tertiary-contrast-300: #1e1e2e;
+  --color-tertiary-contrast-400: #1e1e2e;
+  --color-tertiary-contrast-500: #1e1e2e;
+  --color-tertiary-contrast-600: #1e1e2e;
+  --color-tertiary-contrast-700: #eff1f5;
+  --color-tertiary-contrast-800: #eff1f5;
+  --color-tertiary-contrast-900: #eff1f5;
+  --color-tertiary-contrast-950: #eff1f5;
+  /* success */
+  --color-success-contrast-50: #1e1e2e;
+  --color-success-contrast-100: #1e1e2e;
+  --color-success-contrast-200: #1e1e2e;
+  --color-success-contrast-300: #1e1e2e;
+  --color-success-contrast-400: #1e1e2e;
+  --color-success-contrast-500: #1e1e2e;
+  --color-success-contrast-600: #1e1e2e;
+  --color-success-contrast-700: #eff1f5;
+  --color-success-contrast-800: #eff1f5;
+  --color-success-contrast-900: #eff1f5;
+  --color-success-contrast-950: #eff1f5;
+  /* warning */
+  --color-warning-contrast-50: #1e1e2e;
+  --color-warning-contrast-100: #1e1e2e;
+  --color-warning-contrast-200: #1e1e2e;
+  --color-warning-contrast-300: #1e1e2e;
+  --color-warning-contrast-400: #1e1e2e;
+  --color-warning-contrast-500: #1e1e2e;
+  --color-warning-contrast-600: #1e1e2e;
+  --color-warning-contrast-700: #eff1f5;
+  --color-warning-contrast-800: #eff1f5;
+  --color-warning-contrast-900: #eff1f5;
+  --color-warning-contrast-950: #eff1f5;
+  /* error */
+  --color-error-contrast-50: #1e1e2e;
+  --color-error-contrast-100: #1e1e2e;
+  --color-error-contrast-200: #1e1e2e;
+  --color-error-contrast-300: #1e1e2e;
+  --color-error-contrast-400: #1e1e2e;
+  --color-error-contrast-500: #1e1e2e;
+  --color-error-contrast-600: #eff1f5;
+  --color-error-contrast-700: #eff1f5;
+  --color-error-contrast-800: #eff1f5;
+  --color-error-contrast-900: #eff1f5;
+  --color-error-contrast-950: #eff1f5;
+}
+
+/*
+ * Explicit color pairings.
+ *
+ * Skeleton declares its `x-y` pairings with CSS `light-dark()`. Vite's Lightning
+ * CSS pass (which Tailwind v4 always runs) lowers that into
+ * `prefers-color-scheme` media queries, so the pairings stopped following the
+ * app's `data-mode` attribute: in Latte every paired utility kept its dark
+ * value, giving black buttons and dark muted text on a light page.
+ * Redeclaring them per mode keeps `bg-surface-50-950`, `text-surface-700-300`
+ * and friends correct regardless of the operating system appearance.
+ */
+[data-theme="catppuccin"] {
+  --color-surface-50-950: var(--color-surface-50);
+  --color-surface-contrast-50-950: var(--color-surface-contrast-50);
+  --color-surface-100-900: var(--color-surface-100);
+  --color-surface-contrast-100-900: var(--color-surface-contrast-100);
+  --color-surface-200-800: var(--color-surface-200);
+  --color-surface-contrast-200-800: var(--color-surface-contrast-200);
+  --color-surface-300-700: var(--color-surface-300);
+  --color-surface-contrast-300-700: var(--color-surface-contrast-300);
+  --color-surface-400-600: var(--color-surface-400);
+  --color-surface-contrast-400-600: var(--color-surface-contrast-400);
+  --color-surface-600-400: var(--color-surface-600);
+  --color-surface-contrast-600-400: var(--color-surface-contrast-600);
+  --color-surface-700-300: var(--color-surface-700);
+  --color-surface-contrast-700-300: var(--color-surface-contrast-700);
+  --color-surface-800-200: var(--color-surface-800);
+  --color-surface-contrast-800-200: var(--color-surface-contrast-800);
+  --color-surface-900-100: var(--color-surface-900);
+  --color-surface-contrast-900-100: var(--color-surface-contrast-900);
+  --color-surface-950-50: var(--color-surface-950);
+  --color-surface-contrast-950-50: var(--color-surface-contrast-950);
+
+  --color-primary-50-950: var(--color-primary-50);
+  --color-primary-contrast-50-950: var(--color-primary-contrast-50);
+  --color-primary-100-900: var(--color-primary-100);
+  --color-primary-contrast-100-900: var(--color-primary-contrast-100);
+  --color-primary-200-800: var(--color-primary-200);
+  --color-primary-contrast-200-800: var(--color-primary-contrast-200);
+  --color-primary-300-700: var(--color-primary-300);
+  --color-primary-contrast-300-700: var(--color-primary-contrast-300);
+  --color-primary-400-600: var(--color-primary-400);
+  --color-primary-contrast-400-600: var(--color-primary-contrast-400);
+  --color-primary-600-400: var(--color-primary-600);
+  --color-primary-contrast-600-400: var(--color-primary-contrast-600);
+  --color-primary-700-300: var(--color-primary-700);
+  --color-primary-contrast-700-300: var(--color-primary-contrast-700);
+  --color-primary-800-200: var(--color-primary-800);
+  --color-primary-contrast-800-200: var(--color-primary-contrast-800);
+  --color-primary-900-100: var(--color-primary-900);
+  --color-primary-contrast-900-100: var(--color-primary-contrast-900);
+  --color-primary-950-50: var(--color-primary-950);
+  --color-primary-contrast-950-50: var(--color-primary-contrast-950);
+
+  --color-secondary-50-950: var(--color-secondary-50);
+  --color-secondary-contrast-50-950: var(--color-secondary-contrast-50);
+  --color-secondary-100-900: var(--color-secondary-100);
+  --color-secondary-contrast-100-900: var(--color-secondary-contrast-100);
+  --color-secondary-200-800: var(--color-secondary-200);
+  --color-secondary-contrast-200-800: var(--color-secondary-contrast-200);
+  --color-secondary-300-700: var(--color-secondary-300);
+  --color-secondary-contrast-300-700: var(--color-secondary-contrast-300);
+  --color-secondary-400-600: var(--color-secondary-400);
+  --color-secondary-contrast-400-600: var(--color-secondary-contrast-400);
+  --color-secondary-600-400: var(--color-secondary-600);
+  --color-secondary-contrast-600-400: var(--color-secondary-contrast-600);
+  --color-secondary-700-300: var(--color-secondary-700);
+  --color-secondary-contrast-700-300: var(--color-secondary-contrast-700);
+  --color-secondary-800-200: var(--color-secondary-800);
+  --color-secondary-contrast-800-200: var(--color-secondary-contrast-800);
+  --color-secondary-900-100: var(--color-secondary-900);
+  --color-secondary-contrast-900-100: var(--color-secondary-contrast-900);
+  --color-secondary-950-50: var(--color-secondary-950);
+  --color-secondary-contrast-950-50: var(--color-secondary-contrast-950);
+
+  --color-tertiary-50-950: var(--color-tertiary-50);
+  --color-tertiary-contrast-50-950: var(--color-tertiary-contrast-50);
+  --color-tertiary-100-900: var(--color-tertiary-100);
+  --color-tertiary-contrast-100-900: var(--color-tertiary-contrast-100);
+  --color-tertiary-200-800: var(--color-tertiary-200);
+  --color-tertiary-contrast-200-800: var(--color-tertiary-contrast-200);
+  --color-tertiary-300-700: var(--color-tertiary-300);
+  --color-tertiary-contrast-300-700: var(--color-tertiary-contrast-300);
+  --color-tertiary-400-600: var(--color-tertiary-400);
+  --color-tertiary-contrast-400-600: var(--color-tertiary-contrast-400);
+  --color-tertiary-600-400: var(--color-tertiary-600);
+  --color-tertiary-contrast-600-400: var(--color-tertiary-contrast-600);
+  --color-tertiary-700-300: var(--color-tertiary-700);
+  --color-tertiary-contrast-700-300: var(--color-tertiary-contrast-700);
+  --color-tertiary-800-200: var(--color-tertiary-800);
+  --color-tertiary-contrast-800-200: var(--color-tertiary-contrast-800);
+  --color-tertiary-900-100: var(--color-tertiary-900);
+  --color-tertiary-contrast-900-100: var(--color-tertiary-contrast-900);
+  --color-tertiary-950-50: var(--color-tertiary-950);
+  --color-tertiary-contrast-950-50: var(--color-tertiary-contrast-950);
+
+  --color-success-50-950: var(--color-success-50);
+  --color-success-contrast-50-950: var(--color-success-contrast-50);
+  --color-success-100-900: var(--color-success-100);
+  --color-success-contrast-100-900: var(--color-success-contrast-100);
+  --color-success-200-800: var(--color-success-200);
+  --color-success-contrast-200-800: var(--color-success-contrast-200);
+  --color-success-300-700: var(--color-success-300);
+  --color-success-contrast-300-700: var(--color-success-contrast-300);
+  --color-success-400-600: var(--color-success-400);
+  --color-success-contrast-400-600: var(--color-success-contrast-400);
+  --color-success-600-400: var(--color-success-600);
+  --color-success-contrast-600-400: var(--color-success-contrast-600);
+  --color-success-700-300: var(--color-success-700);
+  --color-success-contrast-700-300: var(--color-success-contrast-700);
+  --color-success-800-200: var(--color-success-800);
+  --color-success-contrast-800-200: var(--color-success-contrast-800);
+  --color-success-900-100: var(--color-success-900);
+  --color-success-contrast-900-100: var(--color-success-contrast-900);
+  --color-success-950-50: var(--color-success-950);
+  --color-success-contrast-950-50: var(--color-success-contrast-950);
+
+  --color-warning-50-950: var(--color-warning-50);
+  --color-warning-contrast-50-950: var(--color-warning-contrast-50);
+  --color-warning-100-900: var(--color-warning-100);
+  --color-warning-contrast-100-900: var(--color-warning-contrast-100);
+  --color-warning-200-800: var(--color-warning-200);
+  --color-warning-contrast-200-800: var(--color-warning-contrast-200);
+  --color-warning-300-700: var(--color-warning-300);
+  --color-warning-contrast-300-700: var(--color-warning-contrast-300);
+  --color-warning-400-600: var(--color-warning-400);
+  --color-warning-contrast-400-600: var(--color-warning-contrast-400);
+  --color-warning-600-400: var(--color-warning-600);
+  --color-warning-contrast-600-400: var(--color-warning-contrast-600);
+  --color-warning-700-300: var(--color-warning-700);
+  --color-warning-contrast-700-300: var(--color-warning-contrast-700);
+  --color-warning-800-200: var(--color-warning-800);
+  --color-warning-contrast-800-200: var(--color-warning-contrast-800);
+  --color-warning-900-100: var(--color-warning-900);
+  --color-warning-contrast-900-100: var(--color-warning-contrast-900);
+  --color-warning-950-50: var(--color-warning-950);
+  --color-warning-contrast-950-50: var(--color-warning-contrast-950);
+
+  --color-error-50-950: var(--color-error-50);
+  --color-error-contrast-50-950: var(--color-error-contrast-50);
+  --color-error-100-900: var(--color-error-100);
+  --color-error-contrast-100-900: var(--color-error-contrast-100);
+  --color-error-200-800: var(--color-error-200);
+  --color-error-contrast-200-800: var(--color-error-contrast-200);
+  --color-error-300-700: var(--color-error-300);
+  --color-error-contrast-300-700: var(--color-error-contrast-300);
+  --color-error-400-600: var(--color-error-400);
+  --color-error-contrast-400-600: var(--color-error-contrast-400);
+  --color-error-600-400: var(--color-error-600);
+  --color-error-contrast-600-400: var(--color-error-contrast-600);
+  --color-error-700-300: var(--color-error-700);
+  --color-error-contrast-700-300: var(--color-error-contrast-700);
+  --color-error-800-200: var(--color-error-800);
+  --color-error-contrast-800-200: var(--color-error-contrast-800);
+  --color-error-900-100: var(--color-error-900);
+  --color-error-contrast-900-100: var(--color-error-contrast-900);
+  --color-error-950-50: var(--color-error-950);
+  --color-error-contrast-950-50: var(--color-error-contrast-950);
+}
+
+/* ------------------------------------------------------- Dark pairings --- */
+[data-theme="catppuccin"][data-mode="dark"] {
+  --color-surface-50-950: var(--color-surface-950);
+  --color-surface-contrast-50-950: var(--color-surface-contrast-950);
+  --color-surface-100-900: var(--color-surface-900);
+  --color-surface-contrast-100-900: var(--color-surface-contrast-900);
+  --color-surface-200-800: var(--color-surface-800);
+  --color-surface-contrast-200-800: var(--color-surface-contrast-800);
+  --color-surface-300-700: var(--color-surface-700);
+  --color-surface-contrast-300-700: var(--color-surface-contrast-700);
+  --color-surface-400-600: var(--color-surface-600);
+  --color-surface-contrast-400-600: var(--color-surface-contrast-600);
+  --color-surface-600-400: var(--color-surface-400);
+  --color-surface-contrast-600-400: var(--color-surface-contrast-400);
+  --color-surface-700-300: var(--color-surface-300);
+  --color-surface-contrast-700-300: var(--color-surface-contrast-300);
+  --color-surface-800-200: var(--color-surface-200);
+  --color-surface-contrast-800-200: var(--color-surface-contrast-200);
+  --color-surface-900-100: var(--color-surface-100);
+  --color-surface-contrast-900-100: var(--color-surface-contrast-100);
+  --color-surface-950-50: var(--color-surface-50);
+  --color-surface-contrast-950-50: var(--color-surface-contrast-50);
+
+  --color-primary-50-950: var(--color-primary-950);
+  --color-primary-contrast-50-950: var(--color-primary-contrast-950);
+  --color-primary-100-900: var(--color-primary-900);
+  --color-primary-contrast-100-900: var(--color-primary-contrast-900);
+  --color-primary-200-800: var(--color-primary-800);
+  --color-primary-contrast-200-800: var(--color-primary-contrast-800);
+  --color-primary-300-700: var(--color-primary-700);
+  --color-primary-contrast-300-700: var(--color-primary-contrast-700);
+  --color-primary-400-600: var(--color-primary-600);
+  --color-primary-contrast-400-600: var(--color-primary-contrast-600);
+  --color-primary-600-400: var(--color-primary-400);
+  --color-primary-contrast-600-400: var(--color-primary-contrast-400);
+  --color-primary-700-300: var(--color-primary-300);
+  --color-primary-contrast-700-300: var(--color-primary-contrast-300);
+  --color-primary-800-200: var(--color-primary-200);
+  --color-primary-contrast-800-200: var(--color-primary-contrast-200);
+  --color-primary-900-100: var(--color-primary-100);
+  --color-primary-contrast-900-100: var(--color-primary-contrast-100);
+  --color-primary-950-50: var(--color-primary-50);
+  --color-primary-contrast-950-50: var(--color-primary-contrast-50);
+
+  --color-secondary-50-950: var(--color-secondary-950);
+  --color-secondary-contrast-50-950: var(--color-secondary-contrast-950);
+  --color-secondary-100-900: var(--color-secondary-900);
+  --color-secondary-contrast-100-900: var(--color-secondary-contrast-900);
+  --color-secondary-200-800: var(--color-secondary-800);
+  --color-secondary-contrast-200-800: var(--color-secondary-contrast-800);
+  --color-secondary-300-700: var(--color-secondary-700);
+  --color-secondary-contrast-300-700: var(--color-secondary-contrast-700);
+  --color-secondary-400-600: var(--color-secondary-600);
+  --color-secondary-contrast-400-600: var(--color-secondary-contrast-600);
+  --color-secondary-600-400: var(--color-secondary-400);
+  --color-secondary-contrast-600-400: var(--color-secondary-contrast-400);
+  --color-secondary-700-300: var(--color-secondary-300);
+  --color-secondary-contrast-700-300: var(--color-secondary-contrast-300);
+  --color-secondary-800-200: var(--color-secondary-200);
+  --color-secondary-contrast-800-200: var(--color-secondary-contrast-200);
+  --color-secondary-900-100: var(--color-secondary-100);
+  --color-secondary-contrast-900-100: var(--color-secondary-contrast-100);
+  --color-secondary-950-50: var(--color-secondary-50);
+  --color-secondary-contrast-950-50: var(--color-secondary-contrast-50);
+
+  --color-tertiary-50-950: var(--color-tertiary-950);
+  --color-tertiary-contrast-50-950: var(--color-tertiary-contrast-950);
+  --color-tertiary-100-900: var(--color-tertiary-900);
+  --color-tertiary-contrast-100-900: var(--color-tertiary-contrast-900);
+  --color-tertiary-200-800: var(--color-tertiary-800);
+  --color-tertiary-contrast-200-800: var(--color-tertiary-contrast-800);
+  --color-tertiary-300-700: var(--color-tertiary-700);
+  --color-tertiary-contrast-300-700: var(--color-tertiary-contrast-700);
+  --color-tertiary-400-600: var(--color-tertiary-600);
+  --color-tertiary-contrast-400-600: var(--color-tertiary-contrast-600);
+  --color-tertiary-600-400: var(--color-tertiary-400);
+  --color-tertiary-contrast-600-400: var(--color-tertiary-contrast-400);
+  --color-tertiary-700-300: var(--color-tertiary-300);
+  --color-tertiary-contrast-700-300: var(--color-tertiary-contrast-300);
+  --color-tertiary-800-200: var(--color-tertiary-200);
+  --color-tertiary-contrast-800-200: var(--color-tertiary-contrast-200);
+  --color-tertiary-900-100: var(--color-tertiary-100);
+  --color-tertiary-contrast-900-100: var(--color-tertiary-contrast-100);
+  --color-tertiary-950-50: var(--color-tertiary-50);
+  --color-tertiary-contrast-950-50: var(--color-tertiary-contrast-50);
+
+  --color-success-50-950: var(--color-success-950);
+  --color-success-contrast-50-950: var(--color-success-contrast-950);
+  --color-success-100-900: var(--color-success-900);
+  --color-success-contrast-100-900: var(--color-success-contrast-900);
+  --color-success-200-800: var(--color-success-800);
+  --color-success-contrast-200-800: var(--color-success-contrast-800);
+  --color-success-300-700: var(--color-success-700);
+  --color-success-contrast-300-700: var(--color-success-contrast-700);
+  --color-success-400-600: var(--color-success-600);
+  --color-success-contrast-400-600: var(--color-success-contrast-600);
+  --color-success-600-400: var(--color-success-400);
+  --color-success-contrast-600-400: var(--color-success-contrast-400);
+  --color-success-700-300: var(--color-success-300);
+  --color-success-contrast-700-300: var(--color-success-contrast-300);
+  --color-success-800-200: var(--color-success-200);
+  --color-success-contrast-800-200: var(--color-success-contrast-200);
+  --color-success-900-100: var(--color-success-100);
+  --color-success-contrast-900-100: var(--color-success-contrast-100);
+  --color-success-950-50: var(--color-success-50);
+  --color-success-contrast-950-50: var(--color-success-contrast-50);
+
+  --color-warning-50-950: var(--color-warning-950);
+  --color-warning-contrast-50-950: var(--color-warning-contrast-950);
+  --color-warning-100-900: var(--color-warning-900);
+  --color-warning-contrast-100-900: var(--color-warning-contrast-900);
+  --color-warning-200-800: var(--color-warning-800);
+  --color-warning-contrast-200-800: var(--color-warning-contrast-800);
+  --color-warning-300-700: var(--color-warning-700);
+  --color-warning-contrast-300-700: var(--color-warning-contrast-700);
+  --color-warning-400-600: var(--color-warning-600);
+  --color-warning-contrast-400-600: var(--color-warning-contrast-600);
+  --color-warning-600-400: var(--color-warning-400);
+  --color-warning-contrast-600-400: var(--color-warning-contrast-400);
+  --color-warning-700-300: var(--color-warning-300);
+  --color-warning-contrast-700-300: var(--color-warning-contrast-300);
+  --color-warning-800-200: var(--color-warning-200);
+  --color-warning-contrast-800-200: var(--color-warning-contrast-200);
+  --color-warning-900-100: var(--color-warning-100);
+  --color-warning-contrast-900-100: var(--color-warning-contrast-100);
+  --color-warning-950-50: var(--color-warning-50);
+  --color-warning-contrast-950-50: var(--color-warning-contrast-50);
+
+  --color-error-50-950: var(--color-error-950);
+  --color-error-contrast-50-950: var(--color-error-contrast-950);
+  --color-error-100-900: var(--color-error-900);
+  --color-error-contrast-100-900: var(--color-error-contrast-900);
+  --color-error-200-800: var(--color-error-800);
+  --color-error-contrast-200-800: var(--color-error-contrast-800);
+  --color-error-300-700: var(--color-error-700);
+  --color-error-contrast-300-700: var(--color-error-contrast-700);
+  --color-error-400-600: var(--color-error-600);
+  --color-error-contrast-400-600: var(--color-error-contrast-600);
+  --color-error-600-400: var(--color-error-400);
+  --color-error-contrast-600-400: var(--color-error-contrast-400);
+  --color-error-700-300: var(--color-error-300);
+  --color-error-contrast-700-300: var(--color-error-contrast-300);
+  --color-error-800-200: var(--color-error-200);
+  --color-error-contrast-800-200: var(--color-error-contrast-200);
+  --color-error-900-100: var(--color-error-100);
+  --color-error-contrast-900-100: var(--color-error-contrast-100);
+  --color-error-950-50: var(--color-error-50);
+  --color-error-contrast-950-50: var(--color-error-contrast-50);
+}
+
+/* =========================================================== Base layer === */
+
 html,
 body {
   margin: 0;
@@ -14,4 +708,77 @@ body {
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+/*
+ * App-shell polish. Furu is touch-first: suppress rubber-band scrolling, keep
+ * scrollbars quiet, and never let animation ignore the OS reduced-motion
+ * preference. Zoom is disabled in `app.html` via the viewport meta tag, so the
+ * layout must also avoid horizontal overflow of its own.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: color-mix(in oklab, var(--color-primary-500) 20%, transparent);
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--color-primary-500) 45%, transparent);
+}
+
+@layer utilities {
+  /* Skeleton's small button is 28px tall — under the 44px touch guideline. */
+  .btn-sm {
+    min-height: 2.25rem;
+  }
+
+  .btn-xs {
+    min-height: 1.75rem;
+  }
+
+  /*
+   * LayerChart axis labels. Its defaults are a 10px / 300-weight glyph with a
+   * 2px "halo" stroke drawn in `--color-surface-100`. In this palette that token
+   * is a *text* colour (light in Mocha), so light labels got a lighter outline
+   * and read as blurry. Larger, heavier text with the halo removed is legible at
+   * phone size.
+   */
+  .lc-axis-label,
+  .lc-axis-tick-label {
+    font-size: 11px;
+    font-weight: 500;
+    stroke: none;
+  }
+
+  /*
+   * SVG chart color utilities. Tailwind compiles `fill-*`/`stroke-*` pairings
+   * against Skeleton's lowered `--lightningcss-*` variables, so they ignore
+   * `data-mode`. Re-pointing them at the pairing variables declared above keeps
+   * chart axes and grid lines readable in both themes.
+   */
+  .fill-surface-700-300 {
+    fill: var(--color-surface-700-300);
+  }
+
+  .stroke-surface-500-500 {
+    stroke: var(--color-surface-500);
+  }
+
+  .stroke-surface-400-600 {
+    stroke: var(--color-surface-400-600);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

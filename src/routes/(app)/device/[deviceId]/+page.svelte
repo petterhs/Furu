@@ -1,1023 +1,152 @@
 <script lang="ts">
-  import { firmwareLabel } from "$lib/firmwareLabel";
-  import { goto } from "$app/navigation";
-  import { onDestroy, onMount } from "svelte";
-  import Battery from "@lucide/svelte/icons/battery";
-  import Footprints from "@lucide/svelte/icons/footprints";
-  import Heart from "@lucide/svelte/icons/heart";
-  import Settings from "@lucide/svelte/icons/settings";
-  import { LineChart } from "layerchart";
   import { page } from "$app/state";
-  import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
-  import { appCacheDir, join } from "@tauri-apps/api/path";
-  import { open } from "@tauri-apps/plugin-dialog";
-  import { BaseDirectory, mkdir, open as openFile, remove, writeFile } from "@tauri-apps/plugin-fs";
-  import { batteryHistoryByDevice, batteryHistoryHydrated } from "$lib/stores/batteryHistory";
-  import { appSettings } from "$lib/stores/appSettings";
+  import { onDestroy, onMount } from "svelte";
+  import { FeatureId } from "#lib/bleContract";
+  import { profilePreferenceIncludesDeviceInformation } from "#lib/deviceProfileEffective";
+  import {
+    RANGE_MS,
+    type RangeKey,
+  } from "#lib/deviceHistory";
+  import {
+    activeFeatureIds,
+    connected,
+    connectingAddress,
+    deviceInformation,
+    deviceInformationError,
+    refreshDeviceInformationNow,
+    repairServiceCache,
+    selectedAddress,
+  } from "#lib/stores/bleSession";
+  import { batteryHistoryByDevice, batteryHistoryHydrated } from "#lib/stores/batteryHistory";
   import {
     connectionHistoryByDevice,
     connectionHistoryHydrated,
     connectionSegmentsForRange,
-  } from "$lib/stores/connectionHistory";
-  import { profilePreferenceIncludesDeviceInformation } from "$lib/deviceProfileEffective";
+  } from "#lib/stores/connectionHistory";
+  import { deviceProfileCatalog } from "#lib/stores/deviceProfiles";
+  import { dfuInProgress } from "#lib/stores/dfuSession";
+  import { deviceDisplayName, rememberedDevices } from "#lib/stores/devices";
+  import { toastCaught } from "#lib/stores/toast";
   import {
-    DFU_ABORTED,
-    DFU_FILE_LIMITS,
-    readBoundedDfuFile,
-    withDfuCancellation,
-  } from "$lib/dfuFile";
-  import { FeatureId, ProfileId } from "$lib/bleContract";
-  import {
-    activeFeatureIds,
-    activeProfileId,
-    batteryPercent,
-    batteryCharging,
-    batteryVoltageMv,
-    connected,
-    connectError,
-    connectTo,
-    connectingAddress,
-    deviceInformation,
-    deviceInformationError,
-    deviceInformationLoading,
-    disconnectDevice,
-    repairServiceCache,
-    disconnectAfterDfu,
-    heartRateBpm,
-    logBleDiagnostic,
-    refreshDeviceInformationNow,
-    selectedAddress,
-    stepCount,
-  } from "$lib/stores/bleSession";
-  import { deviceProfileCatalog } from "$lib/stores/deviceProfiles";
-  import { forgetRememberedDevice, rememberedDevices, deviceDisplayName } from "$lib/stores/devices";
-  import {
-    beginDfuSession,
-    clearDfuSession,
-    dfuInProgress,
-    dfuSession,
-    endDfuSession,
-    finishDfuSession,
-    getDfuAbortSignal,
-    updateDfuProgress,
-  } from "$lib/stores/dfuSession";
-  import { addressFromDeviceId, bleAddressesEqual, findRememberedByDeviceRouteParam } from "$lib/utils/deviceId";
+    addressFromDeviceId,
+    bleAddressesEqual,
+    findRememberedByDeviceRouteParam,
+  } from "#lib/utils/deviceId";
+  import BatteryHistoryChart from "#lib/components/device/BatteryHistoryChart.svelte";
+  import ConnectionTimelineCard from "#lib/components/device/ConnectionTimelineCard.svelte";
+  import DeviceInformationCard from "#lib/components/device/DeviceInformationCard.svelte";
+  import DeviceOverviewCard from "#lib/components/device/DeviceOverviewCard.svelte";
+  import FirmwareUpdateCard from "#lib/components/device/FirmwareUpdateCard.svelte";
+  import RangeSelector from "#lib/components/device/RangeSelector.svelte";
+  import WatchConfigurationCard from "#lib/components/device/WatchConfigurationCard.svelte";
 
   const deviceId = $derived(page.params.deviceId ?? "");
   const resolvedAddress = $derived(addressFromDeviceId(deviceId));
   const known = $derived(findRememberedByDeviceRouteParam(deviceId, $rememberedDevices));
-  /** Use stored id in child links so History/Settings URLs match `RememberedDevice.id` (encoded address). */
+  /** Stored id in child links so settings/history URLs match `RememberedDevice.id`. */
   const routeDeviceKey = $derived(known?.id ?? deviceId);
   const isCurrentDevice = $derived(
     Boolean(known?.address && $selectedAddress && bleAddressesEqual($selectedAddress, known.address) && $connected),
   );
-  const isConnectingDevice = $derived(
-    Boolean($connectingAddress && bleAddressesEqual($connectingAddress, resolvedAddress)),
-  );
-  const isConnectErrorForDevice = $derived(
-    Boolean($connectError && bleAddressesEqual($connectError.address, resolvedAddress)),
-  );
 
-  const showDeviceInfoSection = $derived(
+  const showDeviceInfo = $derived(
     known ? profilePreferenceIncludesDeviceInformation(known.profilePreference, $deviceProfileCatalog) : false,
   );
-  const canShowLiveDeviceInfo = $derived(showDeviceInfoSection && isCurrentDevice);
+  const canShowLiveInfo = $derived(showDeviceInfo && isCurrentDevice);
+  const canFlash = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
+  const missingDfuFeature = $derived(isCurrentDevice && !$activeFeatureIds.includes(FeatureId.infinitimeDfu));
 
-  type RangeKey = "3h" | "1d" | "3d" | "7d";
-  const RANGE_MS: Record<RangeKey, number> = {
-    "3h": 3 * 60 * 60 * 1000,
-    "1d": 24 * 60 * 60 * 1000,
-    "3d": 3 * 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-  };
-  let selectedRange = $state<RangeKey>("3d");
-  let rangeNowMs = $state(Date.now());
+  /** Kongle devices, or any profile that opted into the watch-config capability. */
+  const watchConfigSupported = $derived(
+    Boolean(known) &&
+      (known!.detectedProfileId === "kongle" ||
+        known!.profilePreference === "kongle" ||
+        $activeFeatureIds.includes(FeatureId.kongleWatchConfig)),
+  );
+
+  let range = $state<RangeKey>("3d");
+  let nowMs = $state(Date.now());
   let rangeClock: ReturnType<typeof setInterval>;
 
-  let dfuBusy = $derived($dfuInProgress);
-  let dfuStatus = $derived($dfuSession?.deviceId === (known?.id ?? deviceId) ? $dfuSession : null);
-  let dfuConfirmation = $state<{ batteryLine: string; resolve: (confirmed: boolean) => void } | null>(null);
+  let repairing = $state(false);
 
-  const canDfu = $derived(isCurrentDevice && $activeFeatureIds.includes(FeatureId.infinitimeDfu));
-  const allSamplesForDevice = $derived((known ? ($batteryHistoryByDevice[known.id] ?? []) : []));
-  const rangeStartMs = $derived(rangeNowMs - RANGE_MS[selectedRange]);
-  const filteredSamples = $derived(
-    allSamplesForDevice.filter((sample) => Date.parse(sample.at) >= rangeStartMs),
-  );
-  const chartPoints = $derived(
-    filteredSamples.map((sample) => ({ time: new Date(sample.at), percent: sample.percent })),
-  );
-  function splitAtGaps<T extends { time: Date }>(points: T[]): T[][] {
-    const segments: T[][] = [];
-    for (const point of points) {
-      const current = segments.at(-1);
-      if (!current || point.time.getTime() - current[current.length - 1].time.getTime() > 15 * 60_000) {
-        segments.push([point]);
-      } else {
-        current.push(point);
-      }
-    }
-    return segments;
-  }
-  const chartSegments = $derived(splitAtGaps(chartPoints));
-  const chartSeries = $derived(chartSegments.map((segment, index) => ({
-    key: index,
-    data: segment,
-    value: (point: { time: Date; percent: number }) => point.percent,
-    color: "var(--color-primary-500)",
-  })));
-  const voltagePoints = $derived(filteredSamples
-    .filter((sample) => sample.voltageMv !== undefined)
-    .map((sample) => ({ time: new Date(sample.at), voltageMv: sample.voltageMv! })));
-  const voltageSeries = $derived(splitAtGaps(voltagePoints).map((segment, index) => ({
-    key: index,
-    data: segment,
-    value: (point: { time: Date; voltageMv: number }) => point.voltageMv,
-    color: "var(--color-secondary-500)",
-  })));
-  const chartGapCount = $derived(filteredSamples.reduce((count, sample, index) => {
-    if (index === 0) return count;
-    return count + (Date.parse(sample.at) - Date.parse(filteredSamples[index - 1].at) > 15 * 60_000 ? 1 : 0);
-  }, 0));
-  /** Aligns connection strip with battery chart window (both use the range buttons). */
-  const rangeEndMs = $derived(rangeNowMs);
-  const rangeSpanMs = $derived(Math.max(1, rangeEndMs - rangeStartMs));
-  const chargingSegments = $derived(filteredSamples.flatMap((sample, index) => {
-    if (!sample.charging) return [];
-    const start = Date.parse(sample.at);
-    const next = index + 1 < filteredSamples.length ? Date.parse(filteredSamples[index + 1].at) : rangeEndMs;
-    const end = Math.min(next, start + 15 * 60_000, rangeEndMs);
-    return end > start ? [{ left: Math.max(0, (start - rangeStartMs) / rangeSpanMs * 100), width: (end - start) / rangeSpanMs * 100 }] : [];
-  }));
-
-  const connectionEventsForDevice = $derived(known ? ($connectionHistoryByDevice[known.id] ?? []) : []);
+  const rangeStartMs = $derived(nowMs - RANGE_MS[range]);
+  const rangeEndMs = $derived(nowMs);
+  const batterySamples = $derived(known ? ($batteryHistoryByDevice[known.id] ?? []) : []);
+  const connectionEvents = $derived(known ? ($connectionHistoryByDevice[known.id] ?? []) : []);
   const connectionSegments = $derived(
-    connectionSegmentsForRange(connectionEventsForDevice, rangeStartMs, rangeEndMs),
+    connectionSegmentsForRange(connectionEvents, rangeStartMs, rangeEndMs),
   );
 
-  /** Compact label like "Sun 12" (saves width on narrow screens). */
-  function formatShortDayLabel(d: Date): string {
-    const weekday = d.toLocaleDateString(undefined, { weekday: "short" });
-    return `${weekday} ${d.getDate()}`;
-  }
-
-  /** Calendar-day bands (local) for the date row above the timeline (hidden for 1W — axis shows days). */
-  function connectionTimelineDayBands(
-    startMs: number,
-    endMs: number,
-    range: RangeKey,
-  ): { start: number; end: number; label: string }[] {
-    const bands: { start: number; end: number; label: string }[] = [];
-    let dayStart = new Date(startMs);
-    dayStart = new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate());
-    let t = dayStart.getTime();
-    const compact = range === "7d";
-    while (t < endMs) {
-      const next = t + 24 * 60 * 60 * 1000;
-      const segStart = Math.max(startMs, t);
-      const segEnd = Math.min(endMs, next);
-      if (segEnd > segStart) {
-        bands.push({
-          start: segStart,
-          end: segEnd,
-          label: compact
-            ? formatShortDayLabel(new Date(t))
-            : new Date(t).toLocaleDateString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              }),
-        });
-      }
-      t = next;
-    }
-    return bands;
-  }
-
-  /** Local midnights stepped by `hours` (4 or 8) from the first boundary at/after `startMs`. */
-  function connectionTimelineHourGridTicks(startMs: number, endMs: number, hours: number): number[] {
-    const start = new Date(startMs);
-    const sod = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
-    let t = sod;
-    const step = hours * 60 * 60 * 1000;
-    while (t + step <= startMs) t += step;
-    while (t < startMs) t += step;
-    const out: number[] = [];
-    while (t <= endMs) {
-      out.push(t);
-      t += step;
-    }
-    return out;
-  }
-
-  /** Vertical lines at each local midnight in the range (for 1W). */
-  function connectionTimelineDayBoundaryTicks(startMs: number, endMs: number): number[] {
-    const start = new Date(startMs);
-    let t = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
-    if (t < startMs) t += 24 * 60 * 60 * 1000;
-    const out: number[] = [];
-    while (t <= endMs) {
-      out.push(t);
-      t += 24 * 60 * 60 * 1000;
-    }
-    return out;
-  }
-
-  function formatConnectionTimelineClock(ms: number): string {
-    const d = new Date(ms);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  }
-
-  function formatTimelineAxisTick(ms: number, range: RangeKey): string {
-    if (range === "7d") return formatShortDayLabel(new Date(ms));
-    return formatConnectionTimelineClock(ms);
-  }
-
-  const timelineGridStepHours = $derived(
-    selectedRange === "3h" ? 1 : selectedRange === "1d" ? 4 : selectedRange === "3d" ? 8 : null,
-  );
-
-  const timelineTicks = $derived(
-    selectedRange === "7d"
-      ? connectionTimelineDayBoundaryTicks(rangeStartMs, rangeEndMs)
-      : connectionTimelineHourGridTicks(
-          rangeStartMs,
-          rangeEndMs,
-          selectedRange === "3h" ? 1 : selectedRange === "3d" ? 8 : 4,
-        ),
-  );
-
-  const timelineDayBands = $derived(connectionTimelineDayBands(rangeStartMs, rangeEndMs, selectedRange));
-  const timelineTickLabelStep = $derived(
-    timelineTicks.length > 36 ? 3 : timelineTicks.length > 22 ? 2 : 1,
-  );
-
-  const DFU_STAGING_DIR = "dfu-import";
-
-  type FirmwareRelease = {
-    id: number;
-    tagName: string;
-    notes: string;
-    htmlUrl: string;
-    publishedAt: string | null;
-    prerelease: boolean;
-    size: number;
-  };
-  let firmwareReleases = $state<FirmwareRelease[]>([]);
-  let firmwareCatalogLoading = $state(false);
-  let firmwareCatalogError = $state<string | null>(null);
-  let releaseLimit = $state(3);
-  const filteredFirmwareReleases = $derived(firmwareReleases.filter(
-    (release) => !release.prerelease || $appSettings.firmwareDevelopmentChannel));
-  const visibleFirmwareReleases = $derived(filteredFirmwareReleases.slice(0, releaseLimit));
-
-  async function refreshFirmwareReleases(): Promise<void> {
-    firmwareCatalogLoading = true;
-    firmwareCatalogError = null;
+  async function onRepair(): Promise<void> {
+    if ($dfuInProgress || repairing) return;
+    repairing = true;
     try {
-      firmwareReleases = await invoke<FirmwareRelease[]>("firmware_list_releases");
+      await repairServiceCache(resolvedAddress);
     } catch (error) {
-      firmwareCatalogError = String(error);
+      toastCaught("Could not repair the connection", error);
     } finally {
-      firmwareCatalogLoading = false;
+      repairing = false;
     }
   }
 
   onMount(() => {
-    void refreshFirmwareReleases();
-    rangeClock = setInterval(() => { rangeNowMs = Date.now(); }, 1_000);
+    rangeClock = setInterval(() => { nowMs = Date.now(); }, 1_000);
   });
-
-  /** A cache-directory suffix only needs to be unique; WebViews may lack crypto.randomUUID(). */
-  function newDfuSessionId(): string {
-    const bytes = new Uint8Array(16);
-    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-      crypto.getRandomValues(bytes);
-      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-    }
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  }
-
-  /**
-   * Copy the file the user picked into the app cache with a normal path.
-   * Android/content:// and similar URIs are not openable from Rust `std::fs`; plugin-fs resolves them.
-   */
-  async function stagePickedFileForRust(
-    sourcePath: string,
-    destFileName: keyof typeof DFU_FILE_LIMITS,
-    sessionDir: string,
-    signal: AbortSignal,
-    progressStart: number,
-    progressEnd: number,
-  ): Promise<string> {
-    const stagingStartedAt = performance.now();
-    logBleDiagnostic(`DFU: opening selected ${destFileName} from Android picker`);
-    const opened = await withDfuCancellation(openFile(sourcePath, { read: true }), signal);
-    if (opened === DFU_ABORTED) throw new Error("DFU_CANCELLED");
-    const file = opened;
-    let bytes: Uint8Array;
-    try {
-      const limit = DFU_FILE_LIMITS[destFileName];
-      bytes = await readBoundedDfuFile(file, limit, {
-        signal,
-        onProgress: (read) => {
-          const fraction = Math.min(1, read / limit);
-          updateDfuProgress("staging", progressStart + Math.floor(fraction * (progressEnd - progressStart)));
-        },
-      });
-      logBleDiagnostic(`DFU: read ${bytes.length} bytes of ${destFileName} in ${Math.round(performance.now() - stagingStartedAt)} ms`);
-    } finally {
-      await file.close();
-    }
-    if (signal.aborted) throw new Error("DFU_CANCELLED");
-    await mkdir(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true });
-    const rel = `${sessionDir}/${destFileName}`;
-    await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
-    logBleDiagnostic(`DFU: staged ${destFileName} in ${Math.round(performance.now() - stagingStartedAt)} ms`);
-    if (signal.aborted) throw new Error("DFU_CANCELLED");
-    updateDfuProgress("staging", progressEnd);
-    return join(await appCacheDir(), rel);
-  }
-
-  function friendlyDfuPhase(phase: string): string {
-    const map: Record<string, string> = {
-      selecting_package: "Choose a firmware package",
-      staging: "Copying selected files into app storage",
-      downloading: "Downloading and checking release package",
-      starting: "Starting",
-      init_packet: "Init packet",
-      priming: "Priming",
-      transfer: "Transferring firmware",
-      validating: "Validating firmware on the watch",
-      applying: "Requesting activation (watch may reboot)",
-      activation_requested: "Activation requested",
-    };
-    return map[phase] ?? phase;
-  }
-
-  function requestDfuConfirmation(batteryLine: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      dfuConfirmation = { batteryLine, resolve };
-    });
-  }
-
-  function finishDfuConfirmation(confirmed: boolean): void {
-    const pending = dfuConfirmation;
-    dfuConfirmation = null;
-    pending?.resolve(confirmed);
-  }
 
   onDestroy(() => {
     clearInterval(rangeClock);
-    finishDfuConfirmation(false);
   });
-
-  async function onDfuStart(release: FirmwareRelease | null = null): Promise<void> {
-    if (!canDfu || $connectingAddress || !beginDfuSession(known?.id ?? deviceId, known ? deviceDisplayName(known) : "PineTime")) return;
-    let unlisten: (() => void) | undefined;
-    let keepResult = false;
-    let nativeTransferAttempted = false;
-    let activationRequested = false;
-    let sessionDir: string | null = null;
-    const dfuProfile = $activeProfileId;
-    const signal = getDfuAbortSignal();
-    if (!signal) {
-      endDfuSession();
-      return;
-    }
-    try {
-      sessionDir = `${DFU_STAGING_DIR}/${newDfuSessionId()}`;
-      const batteryLine =
-        $batteryPercent !== null
-          ? `Battery: ${$batteryPercent}% (use a charger if low).`
-          : "Battery: unknown — charge the watch before updating.";
-      const ok = await requestDfuConfirmation(batteryLine);
-      if (!ok || signal.aborted) return;
-
-      let path: string;
-      if (release) {
-        updateDfuProgress("downloading", 0);
-        logBleDiagnostic(`DFU: downloading Kongle ${release.tagName} from GitHub Releases`);
-        const download = await withDfuCancellation(invoke<string>("firmware_download_release", { releaseId: release.id }), signal);
-        if (download === DFU_ABORTED || signal.aborted) return;
-        path = download;
-      } else {
-        const pickerStartedAt = performance.now();
-        logBleDiagnostic("DFU: opening Android ZIP picker");
-        const first = await withDfuCancellation(open({
-          multiple: false,
-          title: "Select DFU ZIP package",
-          filters: [{ name: "DFU ZIP", extensions: ["zip"] }],
-        }), signal);
-        logBleDiagnostic(`DFU: Android picker returned in ${Math.round(performance.now() - pickerStartedAt)} ms (${first === null ? "cancelled" : "selection"})`);
-        if (first === DFU_ABORTED || first === null || signal.aborted) return;
-        path = Array.isArray(first) ? first[0] : first;
-        if (!path) return;
-      }
-
-      if (!release) updateDfuProgress("staging", 0);
-      const input = { zipPath: release ? path : await stagePickedFileForRust(path, "package.zip", sessionDir, signal, 0, 50) };
-      if (signal.aborted) return;
-
-      unlisten = await listen<{ phase: string; percent: number }>("dfu-progress", (e) => {
-        updateDfuProgress(e.payload.phase, e.payload.percent);
-      });
-      if (signal.aborted) return;
-      updateDfuProgress("starting", 0);
-      // A reboot or failed transfer may drop GATT before the activation event reaches JS.
-      // Reconcile the link whenever the native DFU command was attempted.
-      nativeTransferAttempted = true;
-      await invoke("ble_dfu_flash_package", { input });
-      activationRequested = true;
-      finishDfuSession("success");
-      keepResult = true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logBleDiagnostic(`DFU: error: ${message}`);
-      if (signal.aborted || /cancel(?:led|ed)/i.test(message)) return;
-      const guidance = dfuProfile === ProfileId.kongle && /rejected opcode 0x01 \(status 0x05\)/i.test(message)
-        ? "Kongle refused to start the update (0x01/0x05). If it shows ‘Trial: reset reverts’, reset it to restore the previous firmware. Otherwise check that the installed Kongle was built with ota-activation."
-        : message;
-      finishDfuSession("error", guidance);
-      keepResult = true;
-    } finally {
-      unlisten?.();
-      endDfuSession();
-      if (nativeTransferAttempted) await disconnectAfterDfu(activationRequested);
-      if (sessionDir) {
-        void remove(sessionDir, { baseDir: BaseDirectory.AppCache, recursive: true }).catch(() => {});
-      }
-      if (release) {
-        void remove(`${DFU_STAGING_DIR}/release-${release.id}.zip`, { baseDir: BaseDirectory.AppCache }).catch(() => {});
-      }
-      if (!keepResult) clearDfuSession();
-    }
-  }
-
-  let repairingServices = $state(false);
-  let serviceRepairError = $state<string | null>(null);
-  const android = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
-
-  async function onRepairServices(): Promise<void> {
-    if (dfuBusy || repairingServices) return;
-    repairingServices = true;
-    serviceRepairError = null;
-    try { await repairServiceCache(resolvedAddress); }
-    catch (error) { serviceRepairError = String(error); }
-    finally { repairingServices = false; }
-  }
-
-  async function onForget(): Promise<void> {
-    if (dfuBusy || !known) return;
-    const confirmed = window.confirm(
-      `Forget ${deviceDisplayName(known)}? This removes the device and its local data.`,
-    );
-    if (!confirmed) return;
-    if (isCurrentDevice) {
-      await disconnectDevice();
-    }
-    if (!(await forgetRememberedDevice(known.id))) return;
-    await goto("/home");
-  }
 </script>
 
-<section class="grid min-w-0 gap-4">
-  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-    <div class="mb-3 flex items-center justify-between gap-2">
-      <h2 class="m-0 text-base font-semibold">Device</h2>
-      <a
-        class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[color:var(--color-primary-600)] bg-[color:var(--color-primary-500)] text-white no-underline"
-        href={`/device/${routeDeviceKey}/settings`}
-        aria-label="Open device settings"
-      >
-        <Settings class="size-4 text-white" />
-      </a>
-    </div>
-    {#if known}
-      <p class="m-0"><strong>{deviceDisplayName(known)}</strong></p>
-      <p class="m-0 mt-2 font-mono text-sm">{known.address}</p>
-      {#if isCurrentDevice && $deviceInformation?.firmwareRevision?.trim()}
-        <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">{firmwareLabel(known, $deviceInformation)}</p>
-      {/if}
-      {#if isCurrentDevice}
-        <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">Profile: {$deviceProfileCatalog.profiles.find((profile) => profile.id === $activeProfileId)?.label ?? $activeProfileId} ({known.profilePreference === "auto" ? "Auto" : "Manual"})</p>
-      {:else}
-        <p class="m-0 mt-1 text-xs text-[color:var(--color-surface-700-300)]">{firmwareLabel(known, null)}</p>
-      {/if}
-      {#if isCurrentDevice && ($batteryPercent !== null || $stepCount !== null || $activeFeatureIds.includes(FeatureId.bleHr))}
-        <div class="mt-2 flex flex-col gap-1 text-sm">
-          {#if $batteryPercent !== null}
-            <p class="m-0 flex items-center gap-1">
-              <Battery class="size-4 shrink-0" />
-              {$batteryPercent}%
-              {#if $batteryCharging !== null}
-                · {$batteryCharging ? "Charging" : "On battery"}
-              {/if}
-              {#if $batteryVoltageMv !== null}
-                · {($batteryVoltageMv / 1000).toFixed(2)} V
-              {/if}
-            </p>
-          {/if}
-          {#if $stepCount !== null}
-            <p class="m-0 flex items-center gap-1">
-              <Footprints class="size-4 shrink-0" />
-              {$stepCount.toLocaleString()} steps
-            </p>
-          {/if}
-          {#if $activeFeatureIds.includes(FeatureId.bleHr)}
-            <p class="m-0 flex items-center gap-1">
-              <Heart class="size-4 shrink-0" />
-              {$heartRateBpm !== null ? $heartRateBpm : '--'} bpm
-            </p>
-          {/if}
-        </div>
-      {/if}
-      <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-        Last seen: {new Date(known.lastSeenAt).toLocaleString()}
-      </p>
-    {:else}
-      <p class="m-0 font-mono text-sm">{resolvedAddress}</p>
-    {/if}
-  </article>
+<div class="grid gap-4">
+  <DeviceOverviewCard
+    device={known}
+    address={resolvedAddress}
+    deviceName={known ? deviceDisplayName(known) : resolvedAddress}
+    settingsHref={`/device/${routeDeviceKey}/settings`}
+    onrepair={onRepair}
+    {repairing}
+  />
 
-  {#if known && showDeviceInfoSection}
-    <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-      <h2 class="m-0 mb-3 text-base font-semibold">Device information</h2>
-      {#if !canShowLiveDeviceInfo}
-        <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-          Connect to this device to read Bluetooth Device Information (GATT).
-        </p>
-      {:else if $deviceInformationError}
-        <p class="m-0 text-sm text-[color:var(--color-error-700-300)]">{$deviceInformationError}</p>
-        <button
-          class="btn btn-sm preset-tonal-primary mt-2"
-          type="button"
-          onclick={() => void refreshDeviceInformationNow()}
-        >
-          Retry
-        </button>
-      {:else if $deviceInformation}
-        {@const di = $deviceInformation}
-        <div class="max-w-2xl overflow-x-auto">
-          <table class="w-full border-collapse text-left text-sm">
-            <tbody class="divide-y divide-[color:var(--color-surface-200-800)]">
-              <tr>
-                <th
-                  scope="row"
-                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
-                >
-                  Manufacturer
-                </th>
-                <td class="py-2 font-medium">{di.manufacturerName?.trim() ? di.manufacturerName : "—"}</td>
-              </tr>
-              <tr>
-                <th
-                  scope="row"
-                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
-                >
-                  Model
-                </th>
-                <td class="py-2 font-medium">{di.modelNumber?.trim() ? di.modelNumber : "—"}</td>
-              </tr>
-              <tr>
-                <th
-                  scope="row"
-                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
-                >
-                  Serial number
-                </th>
-                <td class="py-2 font-mono text-xs sm:text-sm">{di.serialNumber?.trim() ? di.serialNumber : "—"}</td>
-              </tr>
-              <tr>
-                <th
-                  scope="row"
-                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
-                >
-                  Firmware
-                </th>
-                <td class="py-2 font-medium">{di.firmwareRevision?.trim() ? di.firmwareRevision : "—"}</td>
-              </tr>
-              <tr>
-                <th
-                  scope="row"
-                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
-                >
-                  Hardware
-                </th>
-                <td class="py-2 font-medium">{di.hardwareRevision?.trim() ? di.hardwareRevision : "—"}</td>
-              </tr>
-              <tr>
-                <th
-                  scope="row"
-                  class="w-[40%] max-w-[11rem] py-2 pr-4 align-top font-normal text-[color:var(--color-surface-700-300)]"
-                >
-                  Software
-                </th>
-                <td class="py-2 font-medium">{di.softwareRevision?.trim() ? di.softwareRevision : "—"}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <button
-          class="btn btn-xs preset-tonal-surface mt-3"
-          type="button"
-          onclick={() => void refreshDeviceInformationNow()}
-        >
-          Refresh
-        </button>
-      {:else}
-        <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Loading…</p>
-      {/if}
-    </article>
+  {#if known && showDeviceInfo}
+    <DeviceInformationCard
+      info={$deviceInformation}
+      error={$deviceInformationError}
+      canRead={canShowLiveInfo}
+      onrefresh={() => void refreshDeviceInformationNow()}
+    />
   {/if}
 
-  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-    <h2 class="m-0 mb-3 text-base font-semibold">Actions</h2>
-    <div class="grid gap-4">
-      <div>
-        <p class="m-0 mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Connection</p>
-        <div class="flex flex-wrap gap-2">
-          {#if isCurrentDevice}
-            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy || repairingServices} onclick={() => { if (!dfuBusy && !repairingServices) void disconnectDevice(); }}>
-              Disconnect
-            </button>
-          {:else}
-            <button
-              class="btn btn-sm preset-filled-primary-500"
-              type="button"
-              onclick={() => { if (!dfuBusy) void connectTo(resolvedAddress); }}
-              disabled={isConnectingDevice || dfuBusy || repairingServices}
-            >
-              {isConnectingDevice ? "Connecting…" : "Connect"}
-            </button>
-          {/if}
-          {#if isConnectingDevice && !isCurrentDevice}
-            <button class="btn btn-sm preset-tonal-surface" type="button" disabled={dfuBusy} onclick={() => void disconnectDevice()}>Cancel connection</button>
-          {/if}
-          {#if android}
-            <button class="btn btn-sm preset-tonal-surface" type="button"
-              disabled={dfuBusy || isConnectingDevice || repairingServices}
-              onclick={() => void onRepairServices()}>
-              {repairingServices ? "Repairing…" : "Repair connection"}
-            </button>
-          {/if}
-          <button class="btn btn-sm preset-tonal-error" type="button" disabled={dfuBusy || repairingServices} onclick={() => void onForget()}>
-            Forget
-          </button>
-        </div>
-      </div>
-      {#if serviceRepairError}
-        <p class="m-0 text-sm text-[color:var(--color-error-700-300)]" role="alert">{serviceRepairError}</p>
-      {/if}
-      {#if isCurrentDevice && canDfu}
-        <div class="border-t border-[color:var(--color-surface-200-800)] pt-4">
-          <h3 class="m-0 text-sm font-semibold">Firmware update</h3>
-          <p class="m-0 mt-1 text-sm text-[color:var(--color-surface-700-300)]">Install a published Kongle build or choose a local package. Each update still requires confirmation before flashing.</p>
-          <div class="mt-3 space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <p class="m-0 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Kongle releases</p>
-              <button class="btn btn-xs preset-tonal-surface" type="button" disabled={firmwareCatalogLoading} onclick={() => void refreshFirmwareReleases()}>{firmwareCatalogLoading ? "Checking…" : "Refresh"}</button>
-            </div>
-            {#if firmwareCatalogError}
-              <p class="m-0 text-sm text-[color:var(--color-error-700-300)]" role="alert">Could not check releases: {firmwareCatalogError}</p>
-            {:else if !firmwareCatalogLoading && visibleFirmwareReleases.length === 0}
-              <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-                {#if $appSettings.firmwareDevelopmentChannel}
-                  No Kongle previews have been published yet. PR artifacts stay in GitHub Actions until a development release is tagged.
-                {:else}
-                  No stable Kongle releases yet. Enable development firmware in Settings to see published previews.
-                {/if}
-              </p>
-            {/if}
-            {#each visibleFirmwareReleases as release (release.id)}
-              <div class="rounded-md border border-[color:var(--color-surface-200-800)] p-3">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p class="m-0 text-sm font-semibold">Kongle {release.tagName} {release.prerelease ? "(development)" : ""}</p>
-                    {#if release.publishedAt}<p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">{new Date(release.publishedAt).toLocaleDateString()}</p>{/if}
-                  </div>
-                  <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart(release)}>Install…</button>
-                </div>
-                {#if release.notes}<details class="mt-2 text-sm"><summary class="cursor-pointer">Changelog</summary><pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">{release.notes}</pre></details>{/if}
-              </div>
-            {/each}
-            {#if visibleFirmwareReleases.length < filteredFirmwareReleases.length}
-              <button class="btn btn-sm preset-tonal-surface" type="button" onclick={() => releaseLimit += 10}>Show more</button>
-            {/if}
-          </div>
-          <p class="m-0 mt-3 text-xs font-semibold uppercase tracking-wide text-[color:var(--color-surface-700-300)]">Local package</p>
-          <div class="mt-3 grid gap-2 sm:grid-cols-2">
-            <button class="btn btn-sm preset-tonal-primary" type="button" disabled={dfuBusy || Boolean($connectingAddress)} onclick={() => void onDfuStart()}>
-              {dfuBusy ? "Update in progress…" : "Choose DFU ZIP…"}
-            </button>
-          </div>
-        </div>
-      {:else if isCurrentDevice}
-        <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-          OTA requires the <span class="font-mono">infinitime.dfu</span> feature on this device’s profile (Settings → Device Profiles).
-        </p>
-      {/if}
-    </div>
-    {#if dfuStatus}
-      <div class="mt-3 max-w-xl space-y-2">
-        {#if dfuStatus.outcome === "running"}
-          <p class="m-0 text-sm">
-            {friendlyDfuPhase(dfuStatus.phase) || "…"}
-            <span class="tabular-nums text-[color:var(--color-surface-700-300)]">({dfuStatus.percent}%)</span>
-          </p>
-          {#if dfuStatus.phase !== "selecting_package" && dfuStatus.phase !== "downloading"}
-            <progress class="h-2 w-full accent-[color:var(--color-primary-500)]" max={100} value={dfuStatus.percent}></progress>
-          {/if}
-          <p class="m-0 text-xs text-[color:var(--color-surface-700-300)]">
-            The watch shows the bootloader’s own step; the percentage here is bytes sent from the phone and often will not
-            match. Transfer speed is limited by Bluetooth — stay close. Cancel is best-effort and may take a few seconds.
-          </p>
-        {:else if dfuStatus.outcome === "success"}
-          <p class="m-0 text-sm text-[color:var(--color-success-700-300)]">Firmware validated and activation requested. Reconnect and check the firmware version. Kongle trial firmware remains unconfirmed and can revert on reset; Furu has not verified installation.</p>
-        {:else if dfuStatus.error}
-          <div class="min-w-0 space-y-2 text-sm text-[color:var(--color-error-700-300)]" role="alert">
-            <p class="m-0 font-medium">Firmware update failed.</p>
-            <details class="min-w-0 rounded-md border border-[color:var(--color-error-700-300)]/40 p-2">
-              <summary class="cursor-pointer">Technical details</summary>
-              <pre class="mb-0 mt-2 max-h-40 max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-xs">{dfuStatus.error}</pre>
-            </details>
-          </div>
-        {/if}
-      </div>
-    {/if}
-    {#if isConnectErrorForDevice}
-      <p class="m-0 mt-3 text-sm text-[color:var(--color-error-700-300)]">{$connectError?.message}</p>
-    {/if}
-  </article>
+  {#if known}
+    <FirmwareUpdateCard
+      deviceId={known.id}
+      deviceName={deviceDisplayName(known)}
+      {canFlash}
+      missingFeature={missingDfuFeature}
+      isConnected={isCurrentDevice}
+    />
+  {/if}
 
-  <article class="card border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface">
-    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <h2 class="m-0 text-base font-semibold">Battery Trend</h2>
-      <div class="inline-flex items-center gap-1 rounded-md border border-[color:var(--color-surface-300-700)] p-1">
-        <button class={`btn btn-xs ${selectedRange === "3h" ? "preset-filled-primary-500" : "preset-tonal-surface"}`}
-          type="button" onclick={() => selectedRange = "3h"}>3H</button>
-        <button
-          class={`btn btn-xs ${selectedRange === "1d" ? "preset-filled-primary-500" : "preset-tonal-surface"}`}
-          type="button"
-          onclick={() => (selectedRange = "1d")}
-        >
-          1D
-        </button>
-        <button
-          class={`btn btn-xs ${selectedRange === "3d" ? "preset-filled-primary-500" : "preset-tonal-surface"}`}
-          type="button"
-          onclick={() => (selectedRange = "3d")}
-        >
-          3D
-        </button>
-        <button
-          class={`btn btn-xs ${selectedRange === "7d" ? "preset-filled-primary-500" : "preset-tonal-surface"}`}
-          type="button"
-          onclick={() => (selectedRange = "7d")}
-        >
-          1W
-        </button>
-      </div>
-    </div>
-
-    {#if !$batteryHistoryHydrated}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Loading battery history...</p>
-    {:else if !known}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Unknown remembered device.</p>
-    {:else if !chartPoints.length}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-        No battery samples for this range yet. Connect the device to collect data.
-      </p>
-    {:else}
-      <div class="h-56 rounded border border-[color:var(--color-surface-300-700)] bg-[color:var(--color-surface-50-950)] p-2">
-        <LineChart
-          data={chartPoints}
-          series={chartSeries}
-          x="time"
-          y="percent"
-          yDomain={[0, 100]}
-          xDomain={[new Date(rangeStartMs), new Date(rangeEndMs)]}
-          height={200}
-          axis={true}
-          grid={true}
-          points={false}
-          rule={false}
-          props={{
-            spline: { stroke: "var(--color-primary-500)", strokeWidth: 2.5 },
-            xAxis: {
-              ticks: 4,
-              format: (v: Date) => v.toLocaleDateString(),
-              classes: {
-                tickLabel: "fill-[color:var(--color-surface-700-300)]",
-                tick: "stroke-[color:var(--color-surface-500-500)]",
-                rule: "stroke-[color:var(--color-surface-500-500)]",
-              },
-            },
-            yAxis: {
-              ticks: [0, 25, 50, 75, 100],
-              format: (v: number) => `${v}%`,
-              classes: {
-                tickLabel: "fill-[color:var(--color-surface-700-300)]",
-                tick: "stroke-[color:var(--color-surface-500-500)]",
-                rule: "stroke-[color:var(--color-surface-500-500)]",
-              },
-            },
-            grid: {
-              class: "stroke-[color:var(--color-surface-400-600)]",
-            },
-          }}
-        />
-      </div>
-      {#if chartGapCount > 0}
-        <p class="mt-2 text-xs text-[color:var(--color-surface-700-300)]">
-          {chartGapCount} gap{chartGapCount === 1 ? "" : "s"} over 15 minutes; no readings are inferred inside them.
-        </p>
-      {/if}
-      {#if chargingSegments.length}
-        <div class="mt-2 flex items-center gap-2 text-xs text-[color:var(--color-surface-700-300)]">
-          <span>Charging</span>
-          <div class="relative h-2 min-w-0 flex-1 rounded bg-[color:var(--color-surface-300-700)]" aria-label="Recorded charging periods">
-            {#each chargingSegments as segment}
-              <span class="absolute top-0 h-2 rounded bg-[color:var(--color-success-500)]" style:left="{segment.left}%" style:width="{segment.width}%"></span>
-            {/each}
-          </div>
-        </div>
-      {/if}
-      {#if voltagePoints.length > 1}
-        <h3 class="mb-1 mt-4 text-sm font-medium">Battery voltage</h3>
-        <p class="mb-2 text-xs text-[color:var(--color-surface-700-300)]">Raw voltage is useful for comparing drain; the percentage is a coarse estimate.</p>
-        <div class="h-40 rounded border border-[color:var(--color-surface-300-700)] bg-[color:var(--color-surface-50-950)] p-2">
-          <LineChart
-            data={voltagePoints}
-            series={voltageSeries}
-            x="time"
-            y="voltageMv"
-            yDomain={[3000, 4300]}
-            xDomain={[new Date(rangeStartMs), new Date(rangeEndMs)]}
-            height={130}
-            axis={true}
-            grid={true}
-            points={false}
-            rule={false}
-            props={{
-              spline: { stroke: "var(--color-secondary-500)", strokeWidth: 2 },
-              xAxis: { ticks: 4, format: (v: Date) => v.toLocaleDateString() },
-              yAxis: { ticks: [3000, 3500, 4000], format: (v: number) => `${(v / 1000).toFixed(1)} V` },
-            }}
-          />
-        </div>
-      {/if}
-    {/if}
-  </article>
-
-  <article
-    class="card max-w-full min-w-0 overflow-x-hidden border border-[color:var(--color-surface-200-800)] p-4 preset-tonal-surface"
-  >
-    <div class="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2">
-      <h2 class="m-0 text-base font-semibold">Connection timeline</h2>
-      <p class="m-0 max-w-full text-xs text-[color:var(--color-surface-700-300)]">
-        Same range as battery chart · local time
-      </p>
-    </div>
-    {#if !$connectionHistoryHydrated}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Loading connection history…</p>
-    {:else if !known}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">Unknown remembered device.</p>
-    {:else if !connectionSegments.length}
-      <p class="m-0 text-sm text-[color:var(--color-surface-700-300)]">
-        No connection events in this range yet. Connect and disconnect to build the timeline.
-      </p>
-    {:else}
-      <p class="m-0 mb-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs text-[color:var(--color-surface-700-300)]">
-        <span class="inline-flex items-center gap-1">
-          <span class="inline-block h-2 w-4 shrink-0 rounded-sm bg-[color:var(--color-success-500)]" aria-hidden="true"
-          ></span>
-          Connected
-        </span>
-        <span class="inline-flex items-center gap-1">
-          <span
-            class="inline-block h-2 w-4 shrink-0 rounded-sm bg-[color:var(--color-surface-400-600)]"
-            aria-hidden="true"
-          ></span>
-          Disconnected
-        </span>
-        {#if timelineTickLabelStep > 1 && timelineGridStepHours !== null}
-          <span class="text-[color:var(--color-surface-600-400)]">
-            Time labels every {timelineTickLabelStep * timelineGridStepHours}h (dense range)
-          </span>
-        {/if}
-      </p>
-
-      <div class="min-w-0 max-w-full">
-        {#if selectedRange !== "7d"}
-          <div
-            class="mb-1 flex w-full min-w-0 max-w-full border-b border-[color:var(--color-surface-300-700)] pb-1 text-[color:var(--color-surface-700-300)]"
-            aria-hidden="true"
-          >
-            {#each timelineDayBands as band (band.start)}
-              <div
-                class="min-w-0 truncate text-center text-[10px] font-medium leading-tight sm:text-[11px]"
-                style="flex: {band.end - band.start} 1 0"
-              >
-                {band.label}
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        <div
-          class="relative w-full min-w-0 max-w-full overflow-hidden rounded-md border border-[color:var(--color-surface-300-700)] bg-[color:var(--color-surface-50-950)]"
-        >
-          <!-- Vertical grid (4h / 8h / midnight by range) -->
-          {#each timelineTicks as tick (tick)}
-            {@const pct = ((tick - rangeStartMs) / rangeSpanMs) * 100}
-            <div
-              class="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-[color:var(--color-surface-400-600)] opacity-70"
-              style="left: {pct}%"
-              aria-hidden="true"
-            ></div>
-          {/each}
-          <div
-            class="pointer-events-none absolute bottom-0 left-0 top-0 z-20 w-px bg-[color:var(--color-surface-400-600)] opacity-70"
-            aria-hidden="true"
-          ></div>
-          <div
-            class="pointer-events-none absolute bottom-0 right-0 top-0 z-20 w-px bg-[color:var(--color-surface-400-600)] opacity-70"
-            aria-hidden="true"
-          ></div>
-
-          <div
-            class="relative z-10 h-7 w-full min-w-0 max-w-full border-b border-[color:var(--color-surface-300-700)]/60"
-          >
-            {#each timelineTicks as tick, ti (tick)}
-              {@const pct = ((tick - rangeStartMs) / rangeSpanMs) * 100}
-              {#if ti % timelineTickLabelStep === 0}
-                <span
-                  class="absolute top-1 max-w-[2.75rem] -translate-x-1/2 truncate text-center text-[10px] tabular-nums text-[color:var(--color-surface-700-300)] sm:max-w-[3.25rem]"
-                  style="left: {pct}%"
-                  title={formatTimelineAxisTick(tick, selectedRange)}
-                >
-                  {formatTimelineAxisTick(tick, selectedRange)}
-                </span>
-              {/if}
-            {/each}
-          </div>
-
-          <div
-            class="relative z-10 flex h-5 w-full min-w-0 max-w-full"
-            role="img"
-            aria-label="Connection state over time for the selected range"
-          >
-            {#each connectionSegments as seg, i (i)}
-              {@const dur = seg.endMs - seg.startMs}
-              {#if dur > 0}
-                <div
-                  class="h-full min-w-px {seg.connected
-                    ? 'bg-[color:var(--color-success-500)]'
-                    : 'bg-[color:var(--color-surface-400-600)]'}"
-                  style="flex-grow: {Math.max(dur, 1)}"
-                  title="{seg.connected ? 'Connected' : 'Disconnected'}: {new Date(
-                    seg.startMs,
-                  ).toLocaleString()} → {new Date(seg.endMs).toLocaleString()}"
-                ></div>
-              {/if}
-            {/each}
-          </div>
-        </div>
-      </div>
-    {/if}
-  </article>
-
-</section>
-
-{#if dfuConfirmation}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-    <div
-      class="card w-full max-w-md border border-[color:var(--color-surface-200-800)] p-5 shadow-xl preset-tonal-surface"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="dfu-confirm-title"
-      aria-describedby="dfu-confirm-description"
-      tabindex="-1"
-    >
-      <h2 id="dfu-confirm-title" class="m-0 text-lg font-semibold">Before you flash</h2>
-      <div id="dfu-confirm-description" class="mt-3 space-y-2 text-sm">
-        <p class="m-0">This will flash firmware over Bluetooth using Nordic legacy DFU. A wrong file or interrupted update can make the watch unusable.</p>
-        <p class="m-0">Stay nearby, keep Furu open, and do not disconnect until the transfer finishes.</p>
-        {#if $activeProfileId === ProfileId.infinitime}
-          <p class="m-0 font-medium">On the watch, check Settings → Firmware and validate the current InfiniTime image before updating. InfiniTime can erase the rollback copy when updating from an unvalidated trial image.</p>
-        {/if}
-        <p class="m-0 font-medium">{dfuConfirmation.batteryLine}</p>
-      </div>
-      <div class="mt-5 flex justify-end gap-2">
-        <button class="btn btn-sm preset-tonal-surface" type="button" onclick={() => finishDfuConfirmation(false)}>
-          Cancel
-        </button>
-        <button class="btn btn-sm preset-filled-primary-500" type="button" onclick={() => finishDfuConfirmation(true)}>
-          Choose firmware
-        </button>
-      </div>
-    </div>
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h2 class="m-0 text-base font-semibold">History</h2>
+    <RangeSelector value={range} onchange={(next) => (range = next)} label="History range" />
   </div>
-{/if}
+
+  <BatteryHistoryChart
+    title="Battery trend"
+    description="Percent charge across the selected range."
+    samples={batterySamples}
+    segments={connectionSegments}
+    hydrated={$batteryHistoryHydrated}
+    startMs={rangeStartMs}
+    endMs={rangeEndMs}
+  />
+  <ConnectionTimelineCard
+    segments={connectionSegments}
+    hydrated={$connectionHistoryHydrated}
+    known={Boolean(known)}
+    {range}
+    {nowMs}
+  />
+</div>

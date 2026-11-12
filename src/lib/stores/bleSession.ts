@@ -12,17 +12,17 @@ import {
   unsubscribe,
 } from "@mnlphlp/plugin-blec";
 import { derived, get, writable, type Readable } from "svelte/store";
-import type { ProfileInfo } from "$lib/bleContract";
-import { FeatureId, ProfileId } from "$lib/bleContract";
-import { appSettings } from "$lib/stores/appSettings";
-import { notificationFilters } from "$lib/stores/notificationFilters";
-import { resolveProfileIdFromDeviceName } from "$lib/profileNameMatch";
-import { defaultNameRules } from "$lib/persistence/deviceProfilesStore";
+import type { ProfileInfo } from "#lib/bleContract";
+import { FeatureId, ProfileId } from "#lib/bleContract";
+import { appSettings } from "#lib/stores/appSettings";
+import { notificationFilters } from "#lib/stores/notificationFilters";
+import { resolveProfileIdFromDeviceName } from "#lib/profileNameMatch";
+import { defaultNameRules } from "#lib/persistence/deviceProfilesStore";
 import {
   appendBatterySample,
   mergeBatterySamples,
-} from "$lib/stores/batteryHistory";
-import type { BatteryHistorySample } from "$lib/types/batteryHistory";
+} from "#lib/stores/batteryHistory";
+import type { BatteryHistorySample } from "#lib/types/batteryHistory";
 import {
   bindRememberedDevice,
   clampAutoReconnectIntervalMinutes,
@@ -33,23 +33,23 @@ import {
   devicesHydrated,
   recordDetectedProfile,
   touchRememberedDevice,
-} from "$lib/stores/devices";
+} from "#lib/stores/devices";
 import {
   catalogToProfileInfos,
   deviceProfileCatalog,
   getFeatureIdsForProfileId,
   hydrateDeviceProfiles,
-} from "$lib/stores/deviceProfiles";
-import { mergeNativeConnectionHistory } from "$lib/stores/connectionHistory";
+} from "#lib/stores/deviceProfiles";
+import { mergeNativeConnectionHistory } from "#lib/stores/connectionHistory";
 import {
   HEART_RATE_MEASUREMENT_CHAR_UUID,
   HEART_RATE_SERVICE_UUID,
   parseHeartRateMeasurement,
-} from "$lib/ble/hrMeasurement";
-import type { DeviceInformation } from "$lib/types/deviceInformation";
-import { bleAddressesEqual } from "$lib/utils/deviceId";
+} from "#lib/ble/hrMeasurement";
+import type { DeviceInformation } from "#lib/types/deviceInformation";
+import { bleAddressesEqual } from "#lib/utils/deviceId";
 import { beginBleMutation, endBleMutation, isDfuSessionActive, dfuInProgress,
-  beginCapabilityUpdate, endCapabilityUpdate, bleOperationsReleased } from "$lib/stores/dfuSession";
+  beginCapabilityUpdate, endCapabilityUpdate, bleOperationsReleased } from "#lib/stores/dfuSession";
 
 export type ConnectOptions = { /** Debug action: request direct MAC connection. */ skipScan?: boolean };
 

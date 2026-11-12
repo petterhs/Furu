@@ -38,6 +38,7 @@ In-app profile IDs (`unknown`, `infinitime`, `kongle`, …) choose which **catal
 | Steps | `ble.dis_steps` | ✅ | [InfiniTime Motion Service](https://github.com/InfiniTimeOrg/InfiniTime/blob/main/doc/MotionService.md) `00030000-…`, step `00030001-…` | `uint32` LE; `ble_read_step_count` |
 | DFU / OTA | `infinitime.dfu` | ⚠️ | Nordic legacy DFU (control `00001531-…`, packet `00001532-…`) | Application manifest ZIP in the UI (backend retains BIN/DAT compatibility); bounded reads and CRC checks; 20-byte writes; device validation before activation; post-reboot installation confirmation remains manual; see the [Android throughput follow-up](dfu-android-throughput.md) |
 | Companion UART | `infinitime.companion_uart` | ❌ | InfiniTime Nordic UART–style service | Planned |
+| Kongle watch config | `kongle.watch_config` | ❌ | TBD; planned versioned characteristic on the Kongle vendor service | Clock field slots and enabled watch pages. **Furu stores the choice per device today and sends nothing**; the firmware does not advertise this capability yet. See [`docs/ui.md`](../../docs/ui.md) and the device Watch setup card |
 | Kongle (placeholder) | `kongle.*` | ❌ | TBD when Kongle publishes GATT | Reserved prefix |
 | Wasp-os (placeholder) | `wasp.*` | ❌ | TBD per [Wasp-os](https://github.com/wasp-os/wasp-os) | Reserved prefix |
 
@@ -62,6 +63,7 @@ Planning only: which **watch firmware** stacks are expected to support each **fe
 | Steps | `ble.dis_steps` | ✓ | — | — |
 | DFU / OTA | `infinitime.dfu` | ✓ | — | — |
 | Companion UART | `infinitime.companion_uart` | ✓ | — | — |
+| Kongle watch config | `kongle.watch_config` | — | — (planned) | — |
 | Kongle (placeholder) | `kongle.*` | — | — | — |
 | Wasp-os (placeholder) | `wasp.*` | — | — | — |
 

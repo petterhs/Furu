@@ -1,11 +1,11 @@
-import { load } from "@tauri-apps/plugin-store";
-import type { BatteryHistoryByDevice } from "$lib/types/batteryHistory";
+import { openStore } from "#lib/persistence/valueStore";
+import type { BatteryHistoryByDevice } from "#lib/types/batteryHistory";
 
 const STORE_FILE = "battery-history.json";
 const HISTORY_KEY = "historyByDevice";
 
 async function getStore() {
-  return load(STORE_FILE, { autoSave: false, defaults: {} });
+  return openStore(STORE_FILE);
 }
 
 export async function readBatteryHistory(): Promise<BatteryHistoryByDevice> {

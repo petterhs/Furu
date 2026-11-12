@@ -29,5 +29,11 @@ devenv.local.yaml
 # Logs
 *.log
 
+# Heart-rate captures are personal telemetry from a real device, and are only
+# useful as a fixture for a test that actually replays them. Keep them out of the
+# tree by default; add a specific file with `git add -f` when it becomes a fixture.
+docs/furu-hr-capture-*.json
+docs/furu-hr-capture-*.csv
+
 # pre-commit
 .pre-commit-config.yaml

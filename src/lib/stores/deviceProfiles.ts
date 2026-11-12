@@ -1,15 +1,15 @@
 import { get, writable } from "svelte/store";
-import { FeatureId } from "$lib/bleContract";
-import type { ProfileInfo } from "$lib/bleContract";
+import { FeatureId } from "#lib/bleContract";
+import type { ProfileInfo } from "#lib/bleContract";
 import {
   defaultNameRules,
   migrateNameRulesFromLegacyStore,
   readDeviceProfileCatalog,
   seedBuiltinProfiles,
   writeDeviceProfileCatalog,
-} from "$lib/persistence/deviceProfilesStore";
-import type { DeviceProfileCatalog, DeviceProfileDefinition } from "$lib/types/deviceProfileCatalog";
-import type { ProfileNameRule } from "$lib/types/profileNameRule";
+} from "#lib/persistence/deviceProfilesStore";
+import type { DeviceProfileCatalog, DeviceProfileDefinition } from "#lib/types/deviceProfileCatalog";
+import type { ProfileNameRule } from "#lib/types/profileNameRule";
 
 export const deviceProfileCatalog = writable<DeviceProfileCatalog>({ profiles: [], nameRules: [] });
 export const deviceProfilesHydrated = writable(false);

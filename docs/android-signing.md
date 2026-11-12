@@ -59,10 +59,18 @@ Notes:
 
 ## Dev vs release installs on the same device
 
-This project uses Android `debug` suffixing in Gradle so both can coexist:
+Both can coexist because debug builds get an application ID suffix:
 
 - Debug/dev install ID: `com.furu_app.dev` (app label `Furu Dev`)
 - Release install ID: `com.furu_app` (app label `Furu`)
+
+The suffix is declared in `tauri.conf.json` as
+`bundle.android.debugApplicationIdSuffix`, **not** by editing the Gradle files.
+Tauri regenerates `src-tauri/gen/android/` on every `tauri android build` or
+`tauri android dev`, and a hand-added `applicationIdSuffix` line in
+`app/build.gradle.kts` is silently removed, which makes dev builds target
+`com.furu_app`, collide with the release signature, and fail to install with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
 
 Use:
 

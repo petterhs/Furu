@@ -1,6 +1,6 @@
 import { get, writable } from "svelte/store";
-import { readBatteryHistory, writeBatteryHistory } from "$lib/persistence/batteryHistoryStore";
-import type { BatteryHistoryByDevice, BatteryHistorySample } from "$lib/types/batteryHistory";
+import { readBatteryHistory, writeBatteryHistory } from "#lib/persistence/batteryHistoryStore";
+import type { BatteryHistoryByDevice, BatteryHistorySample } from "#lib/types/batteryHistory";
 
 const HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 

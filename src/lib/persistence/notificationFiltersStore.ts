@@ -1,4 +1,4 @@
-import { load } from "@tauri-apps/plugin-store";
+import { openStore } from "#lib/persistence/valueStore";
 
 export type NotificationFilters = {
   blockedPackages: string[];
@@ -14,7 +14,7 @@ const DEFAULT_FILTERS: NotificationFilters = {
 };
 
 async function getStore() {
-  return load(STORE_FILE, { autoSave: false, defaults: {} });
+  return openStore(STORE_FILE);
 }
 
 export function defaultNotificationFilters(): NotificationFilters {

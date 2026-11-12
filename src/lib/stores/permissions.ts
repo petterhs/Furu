@@ -1,11 +1,11 @@
 import { get } from "svelte/store";
-import { requestBlePermissions } from "$lib/stores/bleSession";
+import { requestBlePermissions } from "#lib/stores/bleSession";
 import {
   checkNotificationPermissions,
   getNotificationPermissionStatus,
   notificationPermissionStatus,
   openNotificationListenerSettings as openListenerSettingsNative,
-} from "$lib/stores/notificationForwarder";
+} from "#lib/stores/notificationForwarder";
 
 export type PermissionStatusRow = {
   id: "ble" | "postNotifications" | "notificationListener";

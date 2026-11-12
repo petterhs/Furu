@@ -7,7 +7,7 @@ export type RememberedDevice = {
   /** Local display name; never used for firmware detection. */
   nickname?: string;
   detectedProfileId?: string;
-  profileSuggestion?: import("$lib/profileObservation").ProfileSuggestion;
+  profileSuggestion?: import("#lib/profileObservation").ProfileSuggestion;
   dismissedProfileSuggestions?: string[];
   lastSeenAt: string;
   profilePreference: ProfilePreference;

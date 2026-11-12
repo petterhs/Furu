@@ -13,6 +13,7 @@ export const FeatureId = {
   bleDisSteps: "ble.dis_steps",
   infinitimeDfu: "infinitime.dfu",
   infinitimeCompanionUart: "infinitime.companion_uart",
+  kongleWatchConfig: "kongle.watch_config",
 } as const;
 
 export type FeatureIdValue = (typeof FeatureId)[keyof typeof FeatureId];

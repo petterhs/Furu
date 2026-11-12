@@ -1,78 +1,142 @@
 <script lang="ts">
   import { Switch } from "@skeletonlabs/skeleton-svelte";
-  import { appSettings, patchAppSettings } from "$lib/stores/appSettings";
+  import { goto } from "$app/navigation";
+  import {
+    BellRing,
+    ChevronRight,
+    ClipboardList,
+    Info,
+    SlidersHorizontal,
+    Stethoscope,
+  } from "@lucide/svelte";
+  import { appSettings, patchAppSettings } from "#lib/stores/appSettings";
+  import type { ThemeMode } from "#lib/persistence/appSettingsStore";
+  import { toastCaught } from "#lib/stores/toast";
+  import Card from "#lib/components/ui/Card.svelte";
+  import ListRow from "#lib/components/ui/ListRow.svelte";
+  import PageHeading from "#lib/components/ui/PageHeading.svelte";
+  import SettingRow from "#lib/components/ui/SettingRow.svelte";
+
+  const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+    { value: "dark", label: "Mocha (dark)" },
+    { value: "light", label: "Latte (light)" },
+    { value: "system", label: "Match the phone" },
+  ];
+
+  async function patch(mutator: Parameters<typeof patchAppSettings>[0], errorTitle: string): Promise<void> {
+    try {
+      await patchAppSettings(mutator);
+    } catch (error) {
+      toastCaught(errorTitle, error);
+    }
+  }
 </script>
 
-<section class="grid gap-4">
-  <h2 class="m-0 mb-2 text-base font-semibold">Settings</h2>
-  <article class="card preset-tonal-surface border border-[color:var(--color-surface-200-800)] p-4">
-    <h3 class="m-0 text-sm font-semibold">Notification Forwarding</h3>
-    <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-      Enable or disable forwarding notifications from your phone to connected devices.
-    </p>
-    <Switch
-      class="mt-4 flex w-full items-center justify-between gap-4"
-      checked={$appSettings.notificationForwardingEnabled}
-      onCheckedChange={({ checked }) => {
-        void patchAppSettings((draft) => {
-          draft.notificationForwardingEnabled = checked;
-        });
-      }}
+<div class="grid gap-4">
+  <PageHeading title="Settings" description="Appearance, notifications and device defaults." />
+
+  <Card title="Appearance">
+    <SettingRow label="Theme" hint="Catppuccin Mocha is the default; Latte is available in light environments." stacked>
+      <select
+        class="select"
+        value={$appSettings.themeMode}
+        onchange={(event) =>
+          void patch((draft) => {
+            draft.themeMode = event.currentTarget.value as ThemeMode;
+          }, "Could not change the theme")}
+      >
+        {#each THEME_OPTIONS as option (option.value)}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+    </SettingRow>
+  </Card>
+
+  <Card title="Notifications">
+    <SettingRow
+      label="Forward notifications"
+      hint="Master switch. Per-device and per-app filters still apply."
     >
-      <Switch.Label class="text-sm">Global notification forwarding</Switch.Label>
-      <Switch.HiddenInput />
-      <Switch.Control class="preset-filled-primary-500">
-        <Switch.Thumb />
-      </Switch.Control>
-    </Switch>
-  </article>
-  <article class="card preset-tonal-surface border border-[color:var(--color-surface-200-800)] p-4">
-    <h3 class="m-0 text-sm font-semibold">Firmware channel</h3>
-    <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-      Stable Kongle releases are shown by default. Enable development builds to see release candidates and deliberately published PR previews. These are trial images and may have hardware bugs.
-    </p>
-    <Switch
-      class="mt-4 flex w-full items-center justify-between gap-4"
-      checked={$appSettings.firmwareDevelopmentChannel}
-      onCheckedChange={({ checked }) => {
-        void patchAppSettings((draft) => {
-          draft.firmwareDevelopmentChannel = checked;
-        });
-      }}
+      <Switch
+        checked={$appSettings.notificationForwardingEnabled}
+        onCheckedChange={({ checked }) =>
+          void patch((draft) => {
+            draft.notificationForwardingEnabled = checked;
+          }, "Could not save the notification setting")}
+      >
+        <Switch.HiddenInput />
+        <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
+      </Switch>
+    </SettingRow>
+    <div class="mt-4">
+      <ListRow
+        title="Notification filters"
+        subtitle="Block specific apps from reaching the watch."
+        onclick={() => void goto("/settings/notification-filters")}
+      >
+        {#snippet leading()}<BellRing class="size-4" />{/snippet}
+        {#snippet trailing()}<ChevronRight class="size-4 text-surface-700-300" />{/snippet}
+      </ListRow>
+    </div>
+  </Card>
+
+  <Card title="Permissions">
+    <ListRow
+      title="Bluetooth and notification access"
+      subtitle="Check what Furu is allowed to use, and open Android's settings."
+      onclick={() => void goto("/settings/permissions")}
     >
-      <Switch.Label class="text-sm">Show development firmware</Switch.Label>
-      <Switch.HiddenInput />
-      <Switch.Control class="preset-filled-primary-500">
-        <Switch.Thumb />
-      </Switch.Control>
-    </Switch>
-  </article>
-  <a
-    class="card preset-tonal-surface block border border-[color:var(--color-surface-200-800)] p-4 no-underline text-inherit outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--color-primary-500)]"
-    href="/settings/device-profiles"
-  >
-    <h3 class="m-0 text-sm font-semibold">Device Profiles</h3>
-    <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-      Name detection rules, built-in and custom profiles, and which catalog features each profile includes.
-    </p>
-  </a>
-  <a
-    class="card preset-tonal-surface block border border-[color:var(--color-surface-200-800)] p-4 no-underline text-inherit outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--color-primary-500)]"
-    href="/settings/notification-filters"
-  >
-    <h3 class="m-0 text-sm font-semibold">Notification Filters</h3>
-    <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-      Manage a blocklist of app package notifications that should not be forwarded to your watch.
-    </p>
-  </a>
-  <a
-    class="card preset-tonal-surface block border border-[color:var(--color-surface-200-800)] p-4 no-underline text-inherit outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--color-primary-500)]"
-    href="/settings/permissions"
-  >
-    <h3 class="m-0 text-sm font-semibold">Permissions</h3>
-    <p class="m-0 mt-2 text-sm text-[color:var(--color-surface-700-300)]">
-      Review Bluetooth and notification permissions, request promptable access, and open system settings for
-      notification listener access.
-    </p>
-  </a>
-</section>
+      {#snippet leading()}<Stethoscope class="size-4" />{/snippet}
+      {#snippet trailing()}<ChevronRight class="size-4 text-surface-700-300" />{/snippet}
+    </ListRow>
+  </Card>
+
+  <Card title="Devices">
+    <div class="grid gap-2">
+      <ListRow
+        title="Device profiles"
+        subtitle="Name detection rules and the features each firmware profile enables."
+        onclick={() => void goto("/settings/device-profiles")}
+      >
+        {#snippet leading()}<SlidersHorizontal class="size-4" />{/snippet}
+        {#snippet trailing()}<ChevronRight class="size-4 text-surface-700-300" />{/snippet}
+      </ListRow>
+    </div>
+    <SettingRow
+      label="Show development firmware"
+      hint="Include release candidates and PR previews in the firmware list. These are trial images."
+    >
+      <Switch
+        checked={$appSettings.firmwareDevelopmentChannel}
+        onCheckedChange={({ checked }) =>
+          void patch((draft) => {
+            draft.firmwareDevelopmentChannel = checked;
+          }, "Could not save the firmware channel")}
+      >
+        <Switch.HiddenInput />
+        <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
+      </Switch>
+    </SettingRow>
+  </Card>
+
+  <Card title="Advanced">
+    <div class="grid gap-2">
+      <ListRow
+        title="Diagnostics"
+        subtitle="Connection log and low-level Bluetooth tools."
+        onclick={() => void goto("/settings/diagnostics")}
+      >
+        {#snippet leading()}<ClipboardList class="size-4" />{/snippet}
+        {#snippet trailing()}<ChevronRight class="size-4 text-surface-700-300" />{/snippet}
+      </ListRow>
+      <ListRow
+        title="About Furu"
+        subtitle="Version, licence and where the project lives."
+        onclick={() => void goto("/settings/about")}
+      >
+        {#snippet leading()}<Info class="size-4" />{/snippet}
+        {#snippet trailing()}<ChevronRight class="size-4 text-surface-700-300" />{/snippet}
+      </ListRow>
+    </div>
+  </Card>
+</div>

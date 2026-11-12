@@ -1,14 +1,14 @@
-import { load } from "@tauri-apps/plugin-store";
-import { FeatureId, ProfileId } from "$lib/bleContract";
-import { readProfileNameRules } from "$lib/persistence/profileNameRulesStore";
-import type { DeviceProfileCatalog, DeviceProfileDefinition } from "$lib/types/deviceProfileCatalog";
-import type { ProfileNameRule } from "$lib/types/profileNameRule";
+import { openStore } from "#lib/persistence/valueStore";
+import { FeatureId, ProfileId } from "#lib/bleContract";
+import { readProfileNameRules } from "#lib/persistence/profileNameRulesStore";
+import type { DeviceProfileCatalog, DeviceProfileDefinition } from "#lib/types/deviceProfileCatalog";
+import type { ProfileNameRule } from "#lib/types/profileNameRule";
 
 const STORE_FILE = "device-profiles.json";
 const CATALOG_KEY = "catalog";
 
 async function getStore() {
-  return load(STORE_FILE, { autoSave: false, defaults: {} });
+  return openStore(STORE_FILE);
 }
 
 const KNOWN_FEATURE_IDS = new Set<string>(Object.values(FeatureId));
@@ -62,6 +62,7 @@ export function seedBuiltinProfiles(): DeviceProfileDefinition[] {
         FeatureId.bleMediaControl,
         FeatureId.bleBattery,
         FeatureId.kongleBatteryHistory,
+        FeatureId.kongleWatchConfig,
       ]),
     },
   ];
