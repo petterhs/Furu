@@ -159,6 +159,7 @@ class NotificationForwarderPlugin(private val activity: Activity) : Plugin(activ
                     put("title", payload.title)
                     put("message", payload.message)
                     put("postedAtMs", payload.postedAtMs)
+                    put("dismissed", payload.dismissed)
                 }
             }
             val payload = JSObject().apply {

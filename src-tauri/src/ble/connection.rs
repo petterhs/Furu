@@ -442,15 +442,16 @@ impl Actor {
                                 .profile(&device.address, &self.state.name);
                             self.state.profile_id = profile.id;
                             self.state.feature_ids = profile.feature_ids;
-                            if self.manual
-                                || self
-                                    .saved
-                                    .policies
-                                    .device(&device.address)
-                                    .is_some_and(|p| !p.replay_notifications)
-                            {
-                                let _ = super::notification_forwarding::absorb_notification_backlog_watermark(self.app.clone()).await;
-                            }
+                            /*
+                             * Always advance the watermark on connect, manual or not.
+                             *
+                             * The phone's recent-notification buffer keeps entries the user
+                             * has already read or dismissed, so replaying anything newer than
+                             * an older watermark floods the watch with alerts that are no
+                             * longer on the phone. The watch only shows notifications that
+                             * arrive while it is connected.
+                             */
+                            let _ = super::notification_forwarding::absorb_notification_backlog_watermark(self.app.clone()).await;
                             self.set_session(true);
                             self.event(
                                 true,

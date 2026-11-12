@@ -85,7 +85,6 @@ function migrateRememberedDeviceShape(device: RememberedDevice): RememberedDevic
     currentTimeSyncIntervalMinutes: clampCtsSyncIntervalMinutes(device.currentTimeSyncIntervalMinutes),
     heartRateLoggingEnabled: device.heartRateLoggingEnabled ?? false,
     autoReconnect: device.autoReconnect ?? true,
-    replayMissedNotificationsOnReconnect: device.replayMissedNotificationsOnReconnect ?? true,
     autoReconnectIntervalMinutes: clampAutoReconnectIntervalMinutes(device.autoReconnectIntervalMinutes),
     autoReconnectMaxAttempts: clampAutoReconnectMaxAttempts(device.autoReconnectMaxAttempts),
   };
@@ -108,7 +107,6 @@ export async function hydrateRememberedDevices(): Promise<void> {
     const needsReconnect = raw.autoReconnect === undefined;
     const needsReconnectInterval = raw.autoReconnectIntervalMinutes === undefined;
     const needsReconnectMaxAttempts = raw.autoReconnectMaxAttempts === undefined;
-    const needsReplay = raw.replayMissedNotificationsOnReconnect === undefined;
     const needsClamp =
       raw.currentTimeSyncIntervalMinutes !== undefined &&
       clampCtsSyncIntervalMinutes(raw.currentTimeSyncIntervalMinutes) !==
@@ -120,8 +118,7 @@ export async function hydrateRememberedDevices(): Promise<void> {
       needsHr ||
       needsReconnect ||
       needsReconnectInterval ||
-      needsReconnectMaxAttempts ||
-      needsReplay
+      needsReconnectMaxAttempts
     )
       changed = true;
     const base: RememberedDevice = { ...device, address, id } as RememberedDevice;
@@ -156,7 +153,6 @@ export async function bindRememberedDevice(device: BleDevice): Promise<void> {
     currentTimeSyncIntervalMinutes: CTS_SYNC_DEFAULT_MINUTES,
     heartRateLoggingEnabled: false,
     autoReconnect: true,
-    replayMissedNotificationsOnReconnect: true,
     autoReconnectIntervalMinutes: AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
     autoReconnectMaxAttempts: AUTO_RECONNECT_MAX_ATTEMPTS_DEFAULT,
     ...existing,

@@ -11,6 +11,8 @@ export type ForwardedNotification = {
   title: string;
   message: string;
   postedAtMs: number;
+  /** True once Android reports the notification has left the shade. */
+  dismissed?: boolean;
 };
 
 export const notificationPermissionStatus = writable<NotificationPermissionStatus | null>(null);

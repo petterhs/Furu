@@ -60,7 +60,6 @@
   );
   const heartRateLoggingEnabled = $derived(remembered?.heartRateLoggingEnabled ?? false);
   const autoReconnect = $derived(remembered?.autoReconnect ?? true);
-  const replayMissed = $derived(remembered?.replayMissedNotificationsOnReconnect ?? true);
   const reconnectIntervalMinutes = $derived(
     clampAutoReconnectIntervalMinutes(
       remembered?.autoReconnectIntervalMinutes ?? AUTO_RECONNECT_INTERVAL_DEFAULT_MINUTES,
@@ -272,20 +271,6 @@
                 "Could not save the retry limit",
               )}
           />
-        </SettingRow>
-
-        <SettingRow
-          label="Replay missed notifications"
-          hint="Only after automatic reconnects. Manual connects always skip the backlog so pairing does not spam the watch."
-        >
-          <Switch
-            checked={replayMissed}
-            onCheckedChange={({ checked }) =>
-              void patch({ replayMissedNotificationsOnReconnect: checked }, "Could not save this setting")}
-          >
-            <Switch.HiddenInput />
-            <Switch.Control class="preset-filled-primary-500"><Switch.Thumb /></Switch.Control>
-          </Switch>
         </SettingRow>
       </div>
     </Card>

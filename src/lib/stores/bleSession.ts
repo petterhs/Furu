@@ -135,7 +135,6 @@ function syncNativeConnectionPolicies(): Promise<void> {
       profilePreference: device.profilePreference, enabled: device.autoReconnect,
       retryDelayMs: clampAutoReconnectIntervalMinutes(device.autoReconnectIntervalMinutes) * 60_000,
       maxFailures: clampAutoReconnectMaxAttempts(device.autoReconnectMaxAttempts),
-      replayNotifications: device.replayMissedNotificationsOnReconnect ?? true,
       notificationsEnabled: device.notificationsEnabled,
     })),
     profiles: catalog.profiles.map((p) => ({ id: p.id, featureIds: p.featureIds })),

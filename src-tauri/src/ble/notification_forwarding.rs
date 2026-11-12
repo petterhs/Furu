@@ -196,7 +196,7 @@ pub fn spawn_background_forwarder<R: Runtime>(app: AppHandle<R>) {
             let mut sent_this_tick = 0usize;
             for n in pending.into_iter().filter(|n| n.posted_at_ms > last_sent) {
                 if is_package_blocked(&n.package_name) {
-                    LAST_FORWARDED_POSTED_AT_MS.store(n.posted_at_ms, Ordering::Relaxed);
+                    persist_watermark(&app, n.posted_at_ms);
                     continue;
                 }
                 let title = if n.title.trim().is_empty() {
@@ -218,6 +218,7 @@ pub fn spawn_background_forwarder<R: Runtime>(app: AppHandle<R>) {
                     break;
                 }
                 LAST_FORWARDED_POSTED_AT_MS.store(n.posted_at_ms, Ordering::Relaxed);
+                persist_watermark(&app, n.posted_at_ms);
                 sent_this_tick += 1;
             }
             if sent_this_tick > 0 {
@@ -230,8 +231,82 @@ pub fn spawn_background_forwarder<R: Runtime>(app: AppHandle<R>) {
 #[cfg(not(target_os = "android"))]
 pub fn spawn_background_forwarder<R: Runtime>(_app: AppHandle<R>) {}
 
+/// Where the notification watermark is persisted between launches.
+#[cfg(target_os = "android")]
+const WATERMARK_FILE: &str = "notification-watermark.json";
+
+#[cfg(target_os = "android")]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredWatermark {
+    posted_at_ms: i64,
+}
+
+#[cfg(target_os = "android")]
+fn watermark_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join(WATERMARK_FILE))
+}
+
+/// Restores the watermark at startup.
+///
+/// The watermark used to live only in memory, so every app launch reset it to 0
+/// and the next connection replayed whatever the phone still had buffered. Load
+/// it before the first connect.
+#[cfg(target_os = "android")]
+pub fn load_persisted_watermark<R: Runtime>(app: &AppHandle<R>) {
+    let Some(path) = watermark_path(app) else {
+        return;
+    };
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return;
+    };
+    if meta.len() > 4096 {
+        return;
+    }
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(stored) = serde_json::from_slice::<StoredWatermark>(&bytes) {
+            LAST_FORWARDED_POSTED_AT_MS.store(stored.posted_at_ms, Ordering::Relaxed);
+            eprintln!(
+                "[notif-fwd] restored watermark={} from disk",
+                stored.posted_at_ms
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn load_persisted_watermark<R: Runtime>(_app: &AppHandle<R>) {}
+
+#[cfg(target_os = "android")]
+fn persist_watermark<R: Runtime>(app: &AppHandle<R>, posted_at_ms: i64) {
+    LAST_FORWARDED_POSTED_AT_MS.store(posted_at_ms, Ordering::Relaxed);
+    let Some(path) = watermark_path(app) else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    if let Ok(bytes) = serde_json::to_vec(&StoredWatermark { posted_at_ms }) {
+        // Best effort: a failed write only means the next launch may absorb again,
+        // which is safe because absorbing never sends anything.
+        let _ = std::fs::write(&path, bytes);
+    }
+}
+
 /// Advance the phone notification watermark to the newest queued item (or “now”) without
-/// forwarding, so a fresh **manual** connect does not blast historical notifications to the watch.
+/// forwarding, so connecting never blasts historical notifications to the watch.
+///
+/// Furu never replays notifications the phone already has. The watch only ever
+/// sees alerts that arrive while it is connected: a notification the user has
+/// already read or dismissed must not reappear on the wrist, and the phone's
+/// buffer keeps entries after dismissal, so replaying from a watermark would
+/// resend them.
 #[cfg(target_os = "android")]
 pub async fn absorb_notification_backlog_watermark(app: tauri::AppHandle) -> Result<(), String> {
     let pending = fetch_recent_notifications(&app)?;
@@ -240,7 +315,7 @@ pub async fn absorb_notification_backlog_watermark(app: tauri::AppHandle) -> Res
         .map(|n| n.posted_at_ms)
         .max()
         .unwrap_or_else(current_time_ms_unix);
-    LAST_FORWARDED_POSTED_AT_MS.store(watermark, Ordering::Relaxed);
+    persist_watermark(&app, watermark);
     eprintln!(
         "[notif-fwd] absorb backlog watermark={watermark} (recent_count={})",
         pending.len()
