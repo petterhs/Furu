@@ -21,3 +21,19 @@ is uploaded. Profile changes are made on the watch, not over BLE from Furu.
 
 Run the pure metadata tests with `node --test tests/heart-rate-capture-metadata.test.mjs`
 inside `devenv shell`, followed by `pnpm check` and `pnpm build`.
+
+## Local debug signing across worktrees
+
+The Android devenv module gives each checkout its own `ANDROID_USER_HOME`
+(`<checkout>/.android`), which also determines the default debug keystore.
+A new worktree therefore generates a different signing key unless the original
+Android user home is selected. An APK built that way cannot upgrade an already
+installed Furu Dev app, even with `adb install -r -d`; Android rejects it with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Do not uninstall or clear data to fix this.
+
+For worktree builds, use `devenv shell -- env ANDROID_USER_HOME=/path/to/original/furu/.android pnpm tauri android build --debug --apk --target aarch64 --ci`.
+Set the variable after entering devenv, because its environment sets a checkout
+default. Keep the existing debug keystore private and untracked. Before sharing
+the APK, compare its public certificate fingerprint with the installed app.
+An otherwise identical APK can also be re-signed locally with the original debug
+key; verify the resulting APK signature before replacing the test download.
