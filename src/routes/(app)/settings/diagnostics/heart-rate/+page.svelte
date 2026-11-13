@@ -4,6 +4,7 @@
   import { Activity, Download, Square, Trash2 } from "@lucide/svelte";
   import {
     captureActive,
+    captureExportFilename,
     captureAddress,
     captureError,
     captureSamples,
@@ -51,7 +52,7 @@
     const stamp = localFileStamp(new Date());
     try {
       const path = await save({
-        defaultPath: `furu-hr-capture-${stamp}.${format}`,
+        defaultPath: captureExportFilename(format, stamp),
         filters: [{ name: format.toUpperCase(), extensions: [format] }],
       });
       if (!path) return;
@@ -160,7 +161,7 @@
       <div>
         <dt class="m-0 font-medium">Diagnostics</dt>
         <dd class="m-0 text-surface-700-300">
-          20 bytes: version, phase, BPM, error, sample count and gain, PPG and ambient
+          20 bytes: version, phase, BPM, error, sample count and gain (or test profile in version 4), PPG and ambient
           counters, one-second min/max, elapsed milliseconds.
         </dd>
       </div>

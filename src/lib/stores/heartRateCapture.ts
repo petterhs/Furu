@@ -1,5 +1,6 @@
 import { get, writable } from "svelte/store";
 import { read, subscribe, unsubscribe } from "@mnlphlp/plugin-blec";
+import { captureFilename, diagnosticConfiguration, observedConfigurations } from "#lib/utils/heartRateCaptureMetadata";
 import { localIsoWithOffset } from "#lib/utils/timestamp";
 
 /**
@@ -35,6 +36,7 @@ export type CaptureSample = {
 export const MAX_SAMPLES = 20_000;
 
 export const captureSamples = writable<CaptureSample[]>([]);
+export const captureFirmwareRevision = writable<string | null>(null);
 export const captureActive = writable(false);
 export const captureError = writable<string | null>(null);
 /** Address the current capture belongs to, so a stale capture is obvious. */
@@ -59,6 +61,7 @@ function append(source: CaptureSource, data: number[]): void {
 export function resetCapture(): void {
   captureSamples.set([]);
   captureError.set(null);
+  captureFirmwareRevision.set(null);
 }
 
 /**
@@ -73,6 +76,12 @@ export async function startCapture(address: string): Promise<void> {
   captureAddress.set(address);
   captureError.set(null);
   captureActive.set(true);
+
+  // Read from the device for this capture; never label with a cached watch's revision.
+  try {
+    const raw = await read("00002a26-0000-1000-8000-00805f9b34fb", "0000180a-0000-1000-8000-00805f9b34fb");
+    captureFirmwareRevision.set(new TextDecoder().decode(new Uint8Array(raw)).replace(/\0/g, "").trim() || null);
+  } catch { /* Explicitly export unknown if the current device cannot be read. */ }
 
   try {
     await subscribe(HEART_RATE_MEASUREMENT_UUID, (data) => append("measurement", data));
@@ -113,11 +122,19 @@ export async function stopCapture(): Promise<void> {
  * Captures as CSV. One row per sample, so a spreadsheet or a small script can
  * replay the firmware estimator offline.
  */
+export function captureExportFilename(format: "csv" | "json", stamp: string): string {
+  return captureFilename(get(captureFirmwareRevision), observedConfigurations(get(captureSamples)), stamp, format);
+}
+
 export function captureToCsv(): string {
-  const header = ["t_ms", "source", "hex"].join(",");
-  const rows = get(captureSamples).map((sample) =>
-    [String(sample.tMs), sample.source, `"${sample.hex}"`].join(","),
-  );
+  const quote = (s: string) => `"${s.replaceAll('"', '""')}"`;
+  const header = "t_ms,source,hex,firmware_revision,profile,gain,led_current_ma";
+  const revision = quote(get(captureFirmwareRevision) ?? "unknown");
+  const rows = get(captureSamples).map((sample) => {
+    const config = sample.source === "diagnostics" ? diagnosticConfiguration(sample.bytes) : null;
+    return [String(sample.tMs), sample.source, quote(sample.hex), revision,
+      config?.profile ?? "", config?.gain ?? "", config?.ledCurrentMa ?? ""].join(",");
+  });
   return [header, ...rows].join("\n");
 }
 
@@ -127,6 +144,8 @@ export function captureToJson(): string {
   return JSON.stringify(
     {
       version: 1,
+      firmwareRevision: get(captureFirmwareRevision),
+      configurations: observedConfigurations(get(captureSamples)),
       address: get(captureAddress),
       // Local time with an explicit offset, so the file is unambiguous wherever
       // it is read. `startedAtUtc` is kept for tooling that expects Z time.
