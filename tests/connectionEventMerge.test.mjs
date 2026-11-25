@@ -14,3 +14,14 @@ test("delayed events are inserted at their original time and preserve other devi
   assert.deepEqual(next.watch.map(e=>e.nativeId),[1,2,3]);
   assert.equal(initial.watch.length,1); assert.equal(next.other,initial.other);
 });
+test('native heartbeat advances the same event without duplication or regression', () => {
+ const first={...event(1,'00.000',true),observedUntil:'2026-11-08T10:01:00Z'};
+ const history=mergeNativeEvents({},[first]);
+ const later={...first,observedUntil:'2026-11-08T10:02:00Z'};
+ const updated=mergeNativeEvents(history,[later]);
+ assert.equal(updated.watch.length,1);
+ assert.equal(updated.watch[0].observedUntil,later.observedUntil);
+ assert.equal(history.watch[0].observedUntil,first.observedUntil);
+ assert.equal(mergeNativeEvents(updated,[first]),updated);
+ assert.equal(mergeNativeEvents(updated,[{...later,observedUntil:'invalid'}]),updated);
+});

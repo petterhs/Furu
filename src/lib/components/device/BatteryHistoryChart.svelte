@@ -89,10 +89,11 @@
   );
 
   /** Share of the window the watch was connected, for the summary line. */
+  const unknownRatio = $derived(connectionBand.filter(segment => segment.connected === null).reduce((sum, segment) => sum + segment.width, 0) / 100);
   const connectedRatio = $derived.by(() => {
     if (!connectionBand.length) return null;
     const connectedWidth = connectionBand
-      .filter((segment) => segment.connected)
+      .filter((segment) => segment.connected === true)
       .reduce((total, segment) => total + segment.width, 0);
     return Math.min(1, connectedWidth / 100);
   });
@@ -134,7 +135,8 @@
         {/if}
         {#if connectedRatio !== null}
           <p class="m-0 text-surface-700-300">
-            Connected {Math.round(connectedRatio * 100)}% of the window
+            Confirmed connected {Math.floor(connectedRatio * 100)}% of the window
+            {#if unknownRatio > 0} · {Math.ceil(unknownRatio * 100)}% unknown{/if}
           </p>
         {/if}
       </div>
@@ -156,7 +158,7 @@
       >
         {#each connectionBand as band, index (index)}
           <span
-            class="absolute top-0 h-full {band.connected ? 'bg-success-500' : 'bg-surface-500-500'}"
+            class="absolute top-0 h-full {band.connected === null ? 'bg-warning-200-800' : band.connected ? 'bg-success-500' : 'bg-surface-500-500'}"
             style:left="{band.left}%"
             style:width="{band.width}%"
           ></span>
@@ -171,6 +173,7 @@
           <span class="inline-block size-2 rounded-full bg-surface-500-500" aria-hidden="true"></span>
           Disconnected
         </span>
+        <span class="inline-flex items-center gap-1"><span class="inline-block size-2 rounded-full bg-warning-200-800" aria-hidden="true"></span>Unknown</span>
       </p>
     {/if}
 

@@ -97,3 +97,42 @@ References: [Android background BLE](https://developer.android.com/develop/conne
 Host tests cover retry policy/backoff/generations, profile matching, persistence
 restoration, DFU guard cleanup and idempotent timestamped history import. Real radio,
 Android dialog and background lifecycle checks remain hardware work.
+
+## Observed connection history
+
+The native owner checks the standard Battery Level characteristic once a minute
+while linked and not handling connect/disconnect/OTA work. A successful bounded
+GATT read extends `observedUntil` on the current connection event. This is a
+fresh read, not an imported watch history sample or a cached connected flag.
+Bluetooth must be on; failure or a five-second timeout adds no coverage. No
+additional reconnect policy or artificial disconnect event is introduced.
+
+Events retain their stable native IDs; the frontend merges later observation
+endpoints into the same event. The owner persists observations while the WebView
+is suspended. To bound storage, one-minute observations extend an interval instead
+of appending an event each minute. If observations are more than 90 seconds apart,
+a new interval starts rather than stretching green across scheduler/process
+suspension. An interval's final unobserved tail is unknown, even if the UI still
+has a cached ready snapshot. This adds one small GATT read per minute while linked.
+It does not wake the watch display or change the watch's recording cadence.
+
+The timeline distinguishes confirmed connected (green), explicit disconnected
+(gray), and unknown (amber). Before the first event, after the last observation,
+and across missing observations it shows unknown. Historical transition-only
+connected events cannot prove continuous coverage and are treated conservatively
+as unknown, rather than inventing a past disconnect timestamp or keeping them
+green until today. Explicit disconnected states remain until the next event.
+The percentage summary reports confirmed coverage and unknown time separately.
+
+Battery backfill is independent: a sample recorded on the watch while the phone
+was disconnected remains at its original time and does not create a connection
+interval. Missing old connection events cannot be reconstructed from battery
+samples. The final recorded voltage before an empty watch is not necessarily the
+actual shutdown voltage. Both facts matter when evaluating runtime.
+
+Automated checks cover stale connected records followed by a reconnect two days
+later, bounded observed intervals, prefixes/tails with no evidence, actual
+disconnections, invalid timestamps, observation merging and old native JSON.
+Hardware checks should include disabling Bluetooth, an app/process restart,
+WebView suspension, reconnect/backfill and at least one full overnight session.
+These changes are separate from the already published Furu v0.3.0 baseline.
