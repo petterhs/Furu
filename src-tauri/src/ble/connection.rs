@@ -31,7 +31,30 @@ pub struct LinkEvent {
     pub address: String,
     pub at: String,
     pub connected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_until: Option<String>,
     pub detail: String,
+}
+impl LinkEvent {
+    /// Never stretch an interval across unobserved process/scheduler downtime.
+    fn extend_observation(&mut self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        if !self.connected {
+            return false;
+        }
+        let Some(previous) = self
+            .observed_until
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        else {
+            return false;
+        };
+        let elapsed = now.signed_duration_since(previous).num_milliseconds();
+        if !(0..=90_000).contains(&elapsed) {
+            return false;
+        }
+        self.observed_until = Some(now.to_rfc3339());
+        true
+    }
 }
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,6 +294,7 @@ impl Actor {
             id,
             address,
             at: now.to_rfc3339(),
+            observed_until: connected.then(|| now.to_rfc3339()),
             connected,
             detail: detail.into(),
         });
@@ -280,6 +304,45 @@ impl Actor {
         if let Err(error) = self.save() {
             self.log(&format!("Cannot persist connection history: {error}"));
         }
+    }
+    async fn observe_connection(&mut self, handler: &Handler) {
+        if self.paused || self.cleanup_required || self.ota_cleanup || self.job.is_some() {
+            return;
+        }
+        // A successful GATT read confirms a usable link. Imported watch history
+        // and the plugin's cached connected flag cannot establish that fact.
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            if !matches!(handler.get_adapter_state().await, AdapterState::On) {
+                return false;
+            }
+            handler
+                .recv_data(
+                    uuid::Uuid::from_u128(0x00002a19_0000_1000_8000_00805f9b34fb),
+                    Some(uuid::Uuid::from_u128(
+                        0x0000180f_0000_1000_8000_00805f9b34fb,
+                    )),
+                )
+                .await
+                .is_ok_and(|value| value.len() == 1 && value[0] <= 100)
+        })
+        .await;
+        if !matches!(result, Ok(true)) {
+            return;
+        }
+        let now = chrono::Utc::now();
+        let extended = self.saved.events.last_mut().is_some_and(|event| {
+            self.state
+                .address
+                .as_ref()
+                .is_some_and(|address| event.address.eq_ignore_ascii_case(address))
+                && event.extend_observation(now)
+        });
+        if !extended {
+            self.event(true, "connection observed after monitoring gap");
+        } else if let Err(error) = self.save() {
+            self.log(&format!("Cannot persist connection observation: {error}"));
+        }
+        self.publish("Connection observation updated");
     }
     fn invalidate(&mut self) {
         self.retry.cancel();
@@ -361,6 +424,8 @@ impl Actor {
         if self.target.is_some() {
             self.keepalive(false, true).await;
         }
+        let mut observation = tokio::time::interval(Duration::from_secs(60));
+        observation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let deadline = self
                 .due
@@ -370,14 +435,17 @@ impl Actor {
                 Link(Option<bool>),
                 Done(Result<Outcome, tokio::task::JoinError>),
                 Timer,
+                Observe,
             }
             let wake = tokio::select! {
+                _ = observation.tick(), if self.linked => Wake::Observe,
                 command = commands.recv() => Wake::Command(command),
                 link = links.recv() => Wake::Link(link),
                 result = async { match &mut self.job { Some(job) => (&mut job.task).await, None => std::future::pending().await } } => Wake::Done(result),
                 _ = tokio::time::sleep_until(deadline), if self.due.is_some() && self.job.is_none() && !self.paused => Wake::Timer,
             };
             match wake {
+                Wake::Observe => self.observe_connection(&handler).await,
                 Wake::Command(None) | Wake::Link(None) => break,
                 Wake::Command(Some(command)) => self.command(command).await,
                 Wake::Link(Some(false)) if self.linked && !handler.is_connected() => {
@@ -913,5 +981,33 @@ mod address_tests {
         for invalid in ["", "AA:BB", "AA:BB:CC:DD:EE:GG", "0:11:22:33:44:55"] {
             assert!(super::normalize_address(invalid).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod history_observation_tests {
+    use super::LinkEvent;
+    use chrono::{TimeZone, Utc};
+    #[test]
+    fn observations_extend_only_a_recent_confirmed_interval() {
+        let start = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let mut event = LinkEvent {
+            id: 1,
+            address: "watch".into(),
+            at: start.to_rfc3339(),
+            connected: true,
+            observed_until: Some(start.to_rfc3339()),
+            detail: String::new(),
+        };
+        assert!(event.extend_observation(start + chrono::Duration::seconds(60)));
+        assert!(!event.extend_observation(start + chrono::Duration::seconds(151)));
+        assert!(!event.extend_observation(start));
+        event.observed_until = None;
+        assert!(!event.extend_observation(start));
+    }
+    #[test]
+    fn legacy_events_deserialize_without_inventing_observation_time() {
+        let event:LinkEvent = serde_json::from_str(r#"{"id":1,"address":"watch","at":"2026-11-25T00:00:00Z","connected":true,"detail":"old"}"#).unwrap();
+        assert!(event.observed_until.is_none());
     }
 }

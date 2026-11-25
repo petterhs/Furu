@@ -7,7 +7,6 @@ import {
 import type {
   ConnectionHistoryByDevice,
   ConnectionHistoryEvent,
-  ConnectionHistorySegment,
 } from "#lib/types/connectionHistory";
 
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
@@ -20,9 +19,16 @@ function pruneEvents(events: ConnectionHistoryEvent[], nowMs: number): Connectio
   const cutoff = nowMs - RETENTION_MS;
   return events
     .filter((e) => {
-      if (!e || typeof e.at !== "string") return false;
+      if (!e || typeof e.at !== "string" || typeof e.connected !== "boolean") return false;
       const ts = Date.parse(e.at);
       return Number.isFinite(ts) && ts >= cutoff && ts <= nowMs + 60_000;
+    })
+    .map((event) => {
+      if (!event.observedUntil) return event;
+      const observed = Date.parse(event.observedUntil);
+      if (Number.isFinite(observed) && observed >= Date.parse(event.at) && observed <= nowMs + 60_000) return event;
+      const { observedUntil: _invalid, ...rest } = event;
+      return rest;
     })
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
     .slice(-MAX_EVENTS_PER_DEVICE);
@@ -48,56 +54,7 @@ export async function hydrateConnectionHistory(): Promise<void> {
   }
 }
 
-/** State just before `timeMs` (inclusive of events at or before). */
-function connectedStateAtOrBefore(sorted: ConnectionHistoryEvent[], timeMs: number): boolean {
-  let connected = false;
-  for (const e of sorted) {
-    const t = Date.parse(e.at);
-    if (t > timeMs) break;
-    connected = e.connected;
-  }
-  return connected;
-}
-
-/** Horizontal segments for a “strip chart” of connection over time. */
-export function connectionSegmentsForRange(
-  events: ConnectionHistoryEvent[],
-  rangeStartMs: number,
-  rangeEndMs: number,
-): ConnectionHistorySegment[] {
-  const sorted = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  if (rangeEndMs <= rangeStartMs) return [];
-
-  const inRange = sorted.filter((e) => {
-    const t = Date.parse(e.at);
-    return t >= rangeStartMs && t <= rangeEndMs;
-  });
-
-  const segments: ConnectionHistorySegment[] = [];
-  let cursor = rangeStartMs;
-  let state = connectedStateAtOrBefore(sorted, rangeStartMs);
-
-  const points: { t: number; connected: boolean }[] = [];
-  for (const e of inRange) {
-    points.push({ t: Date.parse(e.at), connected: e.connected });
-  }
-  if (!points.length) {
-    segments.push({ startMs: rangeStartMs, endMs: rangeEndMs, connected: state });
-    return segments;
-  }
-
-  for (const p of points) {
-    if (p.t > cursor) {
-      segments.push({ startMs: cursor, endMs: p.t, connected: state });
-      cursor = p.t;
-    }
-    state = p.connected;
-  }
-  if (cursor < rangeEndMs) {
-    segments.push({ startMs: cursor, endMs: rangeEndMs, connected: state });
-  }
-  return segments;
-}
+export { connectionSegmentsForRange } from "#lib/connectionTimeline";
 
 export async function appendConnectionEvent(
   deviceId: string,

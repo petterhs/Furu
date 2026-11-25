@@ -48,6 +48,7 @@
         <span class="inline-block h-2 w-4 shrink-0 rounded-sm bg-surface-400-600" aria-hidden="true"></span>
         Disconnected
       </span>
+      <span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-4 shrink-0 rounded-sm bg-warning-200-800" aria-hidden="true"></span>Unknown</span>
       {#if labelStep > 1 && gridHours !== null}
         <span class="text-surface-600-400">
           Labels every {labelStep * gridHours}h
@@ -55,6 +56,7 @@
       {/if}
     </p>
 
+    <p class="m-0 mb-2 text-xs text-surface-700-300">Unknown means no confirmed link observations. Imported watch samples do not prove a Bluetooth connection.</p>
     <div class="min-w-0 max-w-full">
       {#if range !== "7d"}
         <div
@@ -104,9 +106,9 @@
             {@const duration = seg.endMs - seg.startMs}
             {#if duration > 0}
               <div
-                class="h-full min-w-px {seg.connected ? 'bg-success-500' : 'bg-surface-400-600'}"
+                class="h-full min-w-px {seg.connected === null ? 'bg-warning-200-800' : seg.connected ? 'bg-success-500' : 'bg-surface-400-600'}"
                 style="flex-grow: {Math.max(duration, 1)}"
-                title="{seg.connected ? 'Connected' : 'Disconnected'}: {new Date(seg.startMs).toLocaleString()} → {new Date(seg.endMs).toLocaleString()}"
+                title="{seg.connected === null ? 'Unknown' : seg.connected ? 'Connected' : 'Disconnected'}: {new Date(seg.startMs).toLocaleString()} → {new Date(seg.endMs).toLocaleString()}"
               ></div>
             {/if}
           {/each}

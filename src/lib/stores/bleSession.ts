@@ -115,7 +115,7 @@ let deviceInformationReadInFlight = false;
 export type NativeConnectionSnapshot = {
   revision: number; sessionId: number; connected: boolean; status: string; address: string | null; name: string;
   profileId: string; featureIds: string[]; attempt: number; detail: string;
-  events: { id: number; address: string; at: string; connected: boolean; detail: string }[];
+  events: { id: number; address: string; at: string; connected: boolean; observedUntil?: string; detail: string }[];
 };
 export const nativeConnection = writable<NativeConnectionSnapshot | null>(null);
 let latestNativeRevision = 0;
@@ -181,7 +181,7 @@ function consumeNativeConnection(state: NativeConnectionSnapshot): void {
   nativeHistoryQueue = nativeHistoryQueue.catch(() => {}).then(async () => {
     await mergeNativeConnectionHistory(state.events.flatMap((event) => {
       const device = getRememberedByAddress(event.address);
-      return device ? [{ deviceId: device.id, at: event.at, connected: event.connected, detail: event.detail, nativeId: event.id }] : [];
+      return device ? [{ deviceId: device.id, at: event.at, connected: event.connected, observedUntil: event.observedUntil, detail: event.detail, nativeId: event.id }] : [];
     }));
   }).catch((error) => pushLog(`BLE: connection history save failed: ${String(error)}`));
 }
